@@ -58,6 +58,14 @@ def test_ml_carousel():
     assert (p["external_id"], p["price"], p["price_original"], p["name"]) == ("MLB555", 150.5, 200, "Tênis")
 
 
+def test_ml_cookie_header():
+    from promosend.providers.mercadolivre import cookie_header
+    exported = '[{"name": "ssid", "value": "abc", "domain": ".mercadolivre.com.br"}, {"name": "cp", "value": "6321"}]'
+    assert cookie_header(exported) == "ssid=abc; cp=6321"
+    assert cookie_header(" ssid=abc; cp=6321 ") == "ssid=abc; cp=6321"
+    assert cookie_header(None) == ""
+
+
 def test_shopee_search_signs_and_filters(monkeypatch):
     from promosend.providers import shopee
     sent = {}

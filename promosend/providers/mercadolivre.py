@@ -1,4 +1,5 @@
 import html
+import json
 import re
 import time
 
@@ -10,7 +11,8 @@ NAME = "Mercado Livre"
 TERM_LABEL = "URLs de categoria"
 TERM_HELP = "Uma URL de listagem do Mercado Livre por linha (ofertas, categorias, buscas)."
 FIELDS = [
-    {"key": "cookies", "label": "Cookies da conta de afiliado", "type": "textarea", "secret": True},
+    {"key": "cookies", "label": "Cookies da conta de afiliado (texto ou JSON exportado da extensão)",
+     "type": "textarea", "secret": True},
     {"key": "csrf_token", "label": "x-csrf-token (do linkbuilder)", "type": "password", "secret": True},
     {"key": "tag", "label": "Tag de afiliado", "type": "text"},
 ]
@@ -25,6 +27,14 @@ HEADERS = {
                   "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
     "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
 }
+
+
+def cookie_header(raw):
+    """Aceita o cabeçalho pronto ('a=1; b=2') ou o JSON exportado por extensões de cookies."""
+    raw = (raw or "").strip()
+    if not raw.startswith("["):
+        return raw
+    return "; ".join(f"{c['name']}={c['value']}" for c in json.loads(raw) if c.get("name"))
 
 
 def _clean(s):
@@ -112,7 +122,7 @@ def parse(page):
 def search(term, cfg):
     for attempt in range(3):
         try:
-            r = requests.get(term, timeout=60, headers={**HEADERS, "cookie": cfg.get("cookies", "")})
+            r = requests.get(term, timeout=60, headers={**HEADERS, "cookie": cookie_header(cfg.get("cookies"))})
             r.raise_for_status()
             return parse(r.text)
         except requests.RequestException:
@@ -129,7 +139,7 @@ def generate_links(urls, cfg):
         "origin": "https://www.mercadolivre.com.br",
         "referer": "https://www.mercadolivre.com.br/afiliados/linkbuilder",
         "x-csrf-token": cfg["csrf_token"],
-        "cookie": cfg["cookies"],
+        "cookie": cookie_header(cfg["cookies"]),
     })
     r.raise_for_status()
     return {u["origin_url"]: u["short_url"] for u in r.json().get("urls", []) if u.get("short_url")}
