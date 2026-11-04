@@ -119,16 +119,25 @@ def parse(page):
     return list(found.values())
 
 
+BLOCKED = ("/captcha/", "account-verification")
+
+
 def search(term, cfg):
     for attempt in range(3):
         try:
             r = requests.get(term, timeout=60, headers={**HEADERS, "cookie": cookie_header(cfg.get("cookies"))})
             r.raise_for_status()
-            return parse(r.text)
+            break
         except requests.RequestException:
             if attempt == 2:
                 raise
             time.sleep(1.5)
+    if any(b in r.url for b in BLOCKED):
+        raise RuntimeError(
+            "o Mercado Livre bloqueou a busca com verificação anti-robô (captcha) e redirecionou para "
+            f"{r.url.split('?')[0]}. Entre na conta pelo navegador, navegue normalmente, exporte os cookies de novo "
+            "e salve em Provedores > Mercado Livre. Se persistir, o ML está bloqueando o IP do servidor.")
+    return parse(r.text)
 
 
 def generate_links(urls, cfg):

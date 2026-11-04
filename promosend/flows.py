@@ -40,7 +40,11 @@ def busca(pkey):
             failed += 1
             continue
         db.upsert_products(pkey, t["grupo"], items)
-        db.log(job, "info", f"Termo {t['term']!r}: {len(items)} produtos")
+        if items:
+            db.log(job, "info", f"Termo {t['term']!r}: {len(items)} produtos")
+        else:
+            db.log(job, "aviso", f"Termo {t['term']!r}: nenhum produto encontrado (confira a URL ou os filtros; "
+                                 "o layout da página pode ter mudado)")
         total += len(items)
     return f"{total} produtos de {len(terms)} termos" + (f", {failed} com erro" if failed else "")
 

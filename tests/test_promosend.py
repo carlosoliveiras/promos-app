@@ -58,6 +58,21 @@ def test_ml_carousel():
     assert (p["external_id"], p["price"], p["price_original"], p["name"]) == ("MLB555", 150.5, 200, "Tênis")
 
 
+def test_ml_search_detects_captcha(monkeypatch):
+    from promosend.providers import mercadolivre
+
+    class Resp:
+        status_code, text = 200, "<html>captcha</html>"
+        url = "https://www.mercadolivre.com.br/captcha/wall/logged?go_url=x"
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(mercadolivre.requests, "get", lambda *a, **k: Resp())
+    with pytest.raises(RuntimeError, match="anti-robô"):
+        mercadolivre.search("https://lista.mercadolivre.com.br/celular", {"cookies": "a=1"})
+    Resp.url, Resp.text = "https://lista.mercadolivre.com.br/celular", POLYCARD
+    assert len(mercadolivre.search("https://lista.mercadolivre.com.br/celular", {})) == 1
+
+
 def test_ml_cookie_header():
     from promosend.providers.mercadolivre import cookie_header
     exported = '[{"name": "ssid", "value": "abc", "domain": ".mercadolivre.com.br"}, {"name": "cp", "value": "6321"}]'
