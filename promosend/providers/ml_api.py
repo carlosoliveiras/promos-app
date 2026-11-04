@@ -144,6 +144,18 @@ def resolve_category(text, cfg):
     return cat_id, r.json().get("name") or cat_id
 
 
+def category_tree(cat_id, cfg):
+    """Para navegar: sem ID, as categorias principais (pede token); com ID, o caminho e as subcategorias (público)."""
+    if not cat_id:
+        return None, [], get("/sites/MLB/categories", cfg)
+    r = requests.get(f"{API}/categories/{cat_id}", timeout=30)
+    if r.status_code == 404:
+        raise RuntimeError(f"a categoria {cat_id} não existe no Mercado Livre")
+    r.raise_for_status()
+    body = r.json()
+    return body, body.get("path_from_root") or [], body.get("children_categories") or []
+
+
 def search(term, cfg, sleep=time.sleep):
     """Mais vendidos da categoria; de cada produto, a oferta mais barata com desconto (> 3%)."""
     if not is_category(term):

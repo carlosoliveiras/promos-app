@@ -190,7 +190,23 @@ def create_app():
             added += db.execute("INSERT OR IGNORE INTO terms (provider, term, grupo) VALUES ('mercadolivre', ?, ?)",
                                 cat_id, grupo or name)
         flash(f"{added} categoria(s) adicionada(s)." + (" Erros: " + " | ".join(errors) if errors else ""))
+        if "voltar" in request.form:  # veio da tela de navegação: continua no mesmo nível
+            return redirect(url_for("ml_api_browse", id=request.form["voltar"] or None))
         return redirect(url_for("provider", pkey="mercadolivre"))
+
+    @app.get("/config/provedores/mercadolivre/api/categorias")
+    def ml_api_browse():
+        cat_id = request.args.get("id", "").strip().upper()
+        if cat_id and not ml_api.is_category(cat_id):
+            abort(404)
+        current, path, children, error = None, [], [], None
+        try:
+            current, path, children = ml_api.category_tree(cat_id, ml_cfg())
+        except Exception as e:
+            error = str(e)
+        registered = {t["term"] for t in db.rows("SELECT term FROM terms WHERE provider = 'mercadolivre'")}
+        return render_template("ml_categories.html", current=current, path=path, children=children,
+                               error=error, registered=registered, cat_id=cat_id)
 
     @app.post("/config/provedores/mercadolivre/api/desconectar")
     def ml_api_disconnect():

@@ -478,3 +478,25 @@ def test_ml_api_category_registration_and_source_split(app, monkeypatch):
     db.set_setting("mercadolivre.fonte", "pagina")
     flows.busca("mercadolivre")
     assert seen == ["https://lista.mercadolivre.com.br/tvs"]
+
+
+def test_ml_api_category_browser(app, monkeypatch):
+    from promosend.providers import ml_api
+
+    class Resp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"id": "MLB1574", "name": "Casa, Móveis e Decoração", "path_from_root": [{"id": "MLB1574", "name": "Casa, Móveis e Decoração"}],
+                    "children_categories": [{"id": "MLB1631", "name": "Móveis", "total_items_in_this_category": 10}]}
+
+    monkeypatch.setattr(ml_api.requests, "get", lambda url, timeout: Resp())
+    monkeypatch.setattr(ml_api, "get", lambda path, cfg, params=None: [{"id": "MLB1574", "name": "Casa, Móveis e Decoração"}])
+    c, token = login(app)
+    assert "MLB1574" in c.get("/config/provedores/mercadolivre/api/categorias").get_data(as_text=True)
+    page = c.get("/config/provedores/mercadolivre/api/categorias?id=mlb1574").get_data(as_text=True)
+    assert "Móveis" in page and "MLB1631" in page
+    r = c.post("/config/provedores/mercadolivre/api/categorias", data={"categorias": "MLB1631", "voltar": "MLB1574", "csrf": token})
+    assert r.headers["Location"].endswith("/api/categorias?id=MLB1574")
+    assert "Cadastrada" in c.get("/config/provedores/mercadolivre/api/categorias?id=MLB1574").get_data(as_text=True)
+    assert c.get("/config/provedores/mercadolivre/api/categorias?id=x<y").status_code == 404

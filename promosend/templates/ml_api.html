@@ -26,7 +26,8 @@
     {% endif %}
   </div>
   <h2>Categorias da API</h2>
-  <p class="muted">Usadas quando a fonte da busca é a API. A busca traz os mais vendidos de cada categoria que estejam com desconto.</p>
+  <p class="muted">Usadas quando a fonte da busca é a API. A busca traz os mais vendidos de cada categoria que estejam com desconto.
+    <a href="{{ url_for('ml_api_browse') }}">Ver todas as categorias e IDs</a></p>
   <form method="post" action="{{ url_for('ml_api_categories') }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label for="categorias">Adicionar categorias</label>

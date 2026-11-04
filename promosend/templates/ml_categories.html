@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Categorias do Mercado Livre · PromoSend{% endblock %}
+{% block content %}
+<h1>Categorias do Mercado Livre</h1>
+<p class="muted"><a href="{{ url_for('provider', pkey='mercadolivre') }}">Voltar para o Mercado Livre</a></p>
+
+{% macro add(id, voltar) %}
+  {% if id in registered %}<span class="tag PRONTO">Cadastrada</span>
+  {% else %}
+  <form method="post" action="{{ url_for('ml_api_categories') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="categorias" value="{{ id }}">
+    <input type="hidden" name="voltar" value="{{ voltar }}">
+    <button class="btn small" type="submit">Cadastrar</button>
+  </form>
+  {% endif %}
+{% endmacro %}
+
+<div class="panel">
+  <form class="row" method="get">
+    <input name="id" value="{{ cat_id }}" placeholder="ID da categoria (MLB1574)" aria-label="ID da categoria" style="flex:1 1 200px">
+    <button class="btn" type="submit">Abrir</button>
+  </form>
+  <p class="muted row" style="margin-bottom:0">
+    <a href="{{ url_for('ml_api_browse') }}">Todas</a>
+    {% for p in path %} › <a href="{{ url_for('ml_api_browse', id=p.id) }}">{{ p.name }}</a>{% endfor %}
+  </p>
+</div>
+
+{% if error %}<div class="flash">Não foi possível carregar: {{ error }}</div>{% endif %}
+
+{% if current %}
+<div class="panel row" style="justify-content:space-between">
+  <div><b>{{ current.name }}</b> <code>{{ current.id }}</code>
+    {% if current.total_items_in_this_category %}<span class="muted"> · {{ current.total_items_in_this_category }} anúncios</span>{% endif %}</div>
+  {{ add(current.id, current.id) }}
+</div>
+{% endif %}
+
+{% if children %}
+<div class="panel">
+  <table class="stack">
+    <tr><th>{{ 'Subcategoria' if current else 'Categoria' }}</th><th>ID</th><th></th></tr>
+    {% for c in children %}
+    <tr>
+      <td data-label="Categoria"><a href="{{ url_for('ml_api_browse', id=c.id) }}">{{ c.name }}</a>
+        {% if c.total_items_in_this_category %}<span class="muted"> · {{ c.total_items_in_this_category }} anúncios</span>{% endif %}</td>
+      <td data-label="ID"><code>{{ c.id }}</code></td>
+      <td>{{ add(c.id, cat_id) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% elif current %}<p class="muted">Sem subcategorias.</p>{% endif %}
+{% endblock %}
