@@ -46,7 +46,7 @@ td, th { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; v
 .card .price { font-size: 18px; font-weight: 700; }
 .card .old { text-decoration: line-through; color: var(--muted); font-size: 13px; }
 .card .aff { font-size: 12px; overflow-wrap: anywhere; }
-.card .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 6px; padding-top: 6px; }
+.card .foot { margin-top: auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; padding-top: 6px; }
 .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); }
 .tag.PRONTO { color: var(--ok); } .tag.PENDENTE { color: #b45309; } .tag.ENVIADO { color: var(--muted); }
 .pager { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 20px; }

@@ -90,6 +90,14 @@ def create_app():
         return render_template("products.html", items=items, provider=provider, status=status,
                                page=page, pages=max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1), total=total)
 
+    @app.post("/produtos/<int:pid>/excluir")
+    def delete_product(pid):
+        if db.execute("DELETE FROM products WHERE id = ?", pid):
+            flash("Produto excluído.")
+        f = request.form
+        return redirect(url_for("products", provider=f.get("provider") or None, status=f.get("status") or None,
+                                page=f.get("page", type=int) or None))
+
     @app.route("/logs")
     def logs():
         job, level = request.args.get("job", ""), request.args.get("level", "")

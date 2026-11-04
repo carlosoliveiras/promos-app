@@ -35,6 +35,11 @@
       <div class="foot">
         <span class="tag {{ p.status }}">{{ p.status }}</span>
         {% if p.url %}<a class="btn small" href="{{ p.url }}" target="_blank" rel="noopener">Ver produto</a>{% endif %}
+        <form method="post" action="{{ url_for('delete_product', pid=p.id) }}" onsubmit="return confirm('Excluir este produto?')">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          {% for k, v in [('provider', provider), ('status', status), ('page', page)] %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+          <button class="btn small" type="submit" aria-label="Excluir {{ p.name }}">Excluir</button>
+        </form>
       </div>
     </div>
   </article>

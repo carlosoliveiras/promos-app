@@ -500,3 +500,14 @@ def test_ml_api_category_browser(app, monkeypatch):
     assert r.headers["Location"].endswith("/api/categorias?id=MLB1574")
     assert "Cadastrada" in c.get("/config/provedores/mercadolivre/api/categorias?id=MLB1574").get_data(as_text=True)
     assert c.get("/config/provedores/mercadolivre/api/categorias?id=x<y").status_code == 404
+
+
+def test_delete_product_keeps_filters(app):
+    from promosend import db
+    db.upsert_products("shopee", "Geral", [{"external_id": "1", "name": "a", "image": "i", "url": "u", "price": 1}])
+    pid = db.row("SELECT id FROM products")["id"]
+    c, token = login(app)
+    assert "Excluir" in c.get("/").get_data(as_text=True)
+    r = c.post(f"/produtos/{pid}/excluir", data={"csrf": token, "provider": "shopee", "status": "", "page": "2"})
+    assert r.headers["Location"].endswith("/?provider=shopee&page=2")
+    assert not db.row("SELECT 1 FROM products")
