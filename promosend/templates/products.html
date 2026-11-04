@@ -28,10 +28,13 @@
         {% if p.sales %} · {{ p.sales }} vendas{% endif %}
         {% if p.commission %} · {{ '%.0f' % (p.commission * 100) }}% comissão{% endif %}
       </div>
+      <div class="aff">
+        {% if p.affiliate_url %}<a href="{{ p.affiliate_url }}" target="_blank" rel="noopener" title="Link de afiliado">{{ p.affiliate_url }}</a>
+        {% else %}<span class="muted">Sem link de afiliado</span>{% endif %}
+      </div>
       <div class="foot">
         <span class="tag {{ p.status }}">{{ p.status }}</span>
-        <a class="btn small" href="{{ p.affiliate_url or p.url }}" target="_blank" rel="noopener">
-          {{ 'Link afiliado' if p.affiliate_url else 'Ver produto' }}</a>
+        {% if p.url %}<a class="btn small" href="{{ p.url }}" target="_blank" rel="noopener">Ver produto</a>{% endif %}
       </div>
     </div>
   </article>
