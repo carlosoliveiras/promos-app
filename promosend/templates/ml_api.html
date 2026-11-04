@@ -1,0 +1,37 @@
+<div class="panel">
+  <h2 style="margin-top:0">API oficial do Mercado Livre</h2>
+  <p class="muted">Usada quando a <b>Fonte da busca</b> é "API oficial". Não depende de cookies e não cai no captcha.
+    Os links de afiliado continuam sendo gerados com os cookies acima.</p>
+  {% if api.authorized %}
+  <p class="status-ok">Autorizada{% if api.user_id %} (conta {{ api.user_id }}){% endif %} em {{ api.authorized_at }}.
+    {% if api.minutes_left is not none %}<span class="muted">Token {{ 'válido por ' ~ api.minutes_left ~ ' min' if api.minutes_left > 0 else 'vencido, renova na próxima busca' }}.</span>{% endif %}</p>
+  {% else %}
+  <p class="muted">Ainda não autorizada.</p>
+  {% endif %}
+  <ol class="muted" style="padding-left:18px">
+    <li>Crie um app em <a href="https://developers.mercadolivre.com.br/devcenter" target="_blank" rel="noopener">developers.mercadolivre.com.br</a>.</li>
+    <li>No app, cadastre a Redirect URI: <code>{{ cfg.redirect_uri or callback }}</code></li>
+    <li>Salve o Client ID e o Client Secret acima e clique em Autorizar.</li>
+  </ol>
+  <div class="row">
+    <form method="post" action="{{ url_for('ml_api_start') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="btn primary" type="submit">{{ 'Autorizar de novo' if api.authorized else 'Autorizar no Mercado Livre' }}</button>
+    </form>
+    {% if api.authorized %}
+    <form method="post" action="{{ url_for('ml_api_disconnect') }}" onsubmit="return confirm('Desconectar a API do Mercado Livre?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="btn" type="submit">Desconectar</button>
+    </form>
+    {% endif %}
+  </div>
+  <details style="margin-top:12px">
+    <summary class="muted">A Redirect URI não é a do PromoSend? Cole aqui a URL de retorno</summary>
+    <form method="post" action="{{ url_for('ml_api_code') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label for="ml_url">URL para onde o ML te mandou depois de autorizar (com code=TG-...)</label>
+      <input id="ml_url" name="url" required autocomplete="off">
+      <p><button class="btn" type="submit">Concluir autorização</button></p>
+    </form>
+  </details>
+</div>

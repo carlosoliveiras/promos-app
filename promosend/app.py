@@ -1,11 +1,12 @@
 import secrets
 
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, scheduler, whatsapp
 from .flows import FLOW_LABELS, POST_JOB, brl, default_jobs, job_label
-from .providers import PROVIDERS
+from .providers import PROVIDERS, ml_api
 
 PUBLIC = {"login", "setup", "static"}
 PAGE_SIZE = 24
@@ -15,6 +16,8 @@ LOG_PAGE = 50
 def create_app():
     db.init()
     app = Flask(__name__)
+    # o app só escuta em 127.0.0.1; o proxy (ngrok) informa https e o domínio público
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     if not db.get_setting("secret_key"):
         db.set_setting("secret_key", secrets.token_hex(32))
     app.secret_key = db.get_setting("secret_key")
@@ -124,7 +127,53 @@ def create_app():
             return redirect(url_for("provider", pkey=pkey))
         cfg = db.provider_config(pkey, prov.FIELDS)
         terms = db.rows("SELECT * FROM terms WHERE provider = ? ORDER BY id", pkey)
-        return render_template("provider.html", pkey=pkey, prov=prov, cfg=cfg, terms=terms)
+        extra = {"api": ml_api.status(), "callback": url_for("ml_api_callback", _external=True)} \
+            if pkey == "mercadolivre" else {}
+        return render_template("provider.html", pkey=pkey, prov=prov, cfg=cfg, terms=terms, **extra)
+
+    def ml_cfg():
+        return db.provider_config("mercadolivre", PROVIDERS["mercadolivre"].FIELDS)
+
+    def ml_authorize(code):
+        try:
+            ml_api.authorize(ml_cfg(), code)
+            flash("API do Mercado Livre autorizada. O token renova sozinho.")
+        except RuntimeError as e:
+            flash(f"Não foi possível autorizar: {e}")
+        return redirect(url_for("provider", pkey="mercadolivre"))
+
+    @app.post("/config/provedores/mercadolivre/api/autorizar")
+    def ml_api_start():
+        cfg = ml_cfg()
+        if not (cfg["client_id"] and cfg["client_secret"]):
+            flash("Salve o Client ID e o Client Secret do app antes de autorizar.")
+            return redirect(url_for("provider", pkey="mercadolivre"))
+        session["ml_oauth_state"] = state = secrets.token_urlsafe(16)
+        return redirect(ml_api.auth_link(cfg, cfg["redirect_uri"] or url_for("ml_api_callback", _external=True), state))
+
+    @app.route("/config/provedores/mercadolivre/api/retorno")
+    def ml_api_callback():
+        if request.args.get("error"):
+            flash(f"O Mercado Livre não autorizou: {request.args.get('error_description') or request.args['error']}")
+            return redirect(url_for("provider", pkey="mercadolivre"))
+        if not request.args.get("state") or request.args["state"] != session.pop("ml_oauth_state", None):
+            flash("Retorno de autorização inválido ou expirado. Clique em Autorizar de novo.")
+            return redirect(url_for("provider", pkey="mercadolivre"))
+        return ml_authorize(request.args.get("code", ""))
+
+    @app.post("/config/provedores/mercadolivre/api/codigo")
+    def ml_api_code():
+        code = ml_api.code_from(request.form.get("url"))
+        if not code:
+            flash("Não achei o code=... na URL colada.")
+            return redirect(url_for("provider", pkey="mercadolivre"))
+        return ml_authorize(code)
+
+    @app.post("/config/provedores/mercadolivre/api/desconectar")
+    def ml_api_disconnect():
+        ml_api.disconnect()
+        flash("API do Mercado Livre desconectada.")
+        return redirect(url_for("provider", pkey="mercadolivre"))
 
     @app.post("/config/provedores/<pkey>/termos")
     def add_terms(pkey):

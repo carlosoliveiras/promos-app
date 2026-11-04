@@ -298,3 +298,73 @@ def test_logs_run_job_and_retention(app, monkeypatch):
     c, _ = login(app)
     page = c.get("/logs?level=erro").get_data(as_text=True)
     assert "Shopee · Busca de produtos" in page and "API fora do ar" in page and "Termo &#39;fone&#39;" not in page
+
+
+def test_ml_api_search_picks_discounted_offer(app, monkeypatch):
+    from promosend.providers import mercadolivre, ml_api
+    assert ml_api.category_of("MLB1055") == ml_api.category_of("https://x/ofertas?category=mlb1055") == "MLB1055"
+    with pytest.raises(RuntimeError, match="ID da categoria"):
+        ml_api.category_of("https://lista.mercadolivre.com.br/celular")
+
+    responses = {
+        "/highlights/MLB/category/MLB1055": {"content": [{"id": "P1", "type": "PRODUCT"}, {"id": "P2", "type": "PRODUCT"},
+                                                         {"id": "I9", "type": "ITEM"}]},
+        "/products/P1/items": {"results": [{"item_id": "MLB11", "price": 100, "original_price": 150},
+                                           {"item_id": "MLB12", "price": 90, "original_price": 120},
+                                           {"item_id": "MLB13", "price": 80, "original_price": 81}]},  # < 3%: ignora
+        "/products/P2/items": {"results": [{"item_id": "MLB21", "price": 50}]},  # sem desconto: ignora o produto
+        "/products/P1": {"name": "Celular X", "pictures": [{"url": "http://img/1.jpg"}]},
+    }
+    monkeypatch.setattr(ml_api, "get", lambda path, cfg, params=None: responses[path])
+    monkeypatch.setattr(ml_api, "CALL_DELAY", 0)
+    [p] = mercadolivre.search("MLB1055", {"fonte": "api"})
+    assert p == {"external_id": "MLB12", "name": "Celular X", "image": "https://img/1.jpg",
+                 "url": "https://produto.mercadolivre.com.br/MLB-12", "price": 90, "price_original": 120,
+                 "discount": "25% OFF"}
+
+
+def test_ml_api_oauth_flow_and_refresh(app, monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+    from promosend import db
+    from promosend.providers import ml_api
+    c, token = login(app)
+    c.post("/config/provedores/mercadolivre", data={"fonte": "api", "client_id": "CID", "client_secret": "SEC",
+                                                    "redirect_uri": "", "csrf": token})
+    assert db.get_setting("mercadolivre.fonte") == "api"
+
+    r = c.post("/config/provedores/mercadolivre/api/autorizar", data={"csrf": token})
+    q = parse_qs(urlparse(r.headers["Location"]).query)
+    assert r.headers["Location"].startswith(ml_api.AUTH_URL) and q["client_id"] == ["CID"]
+    assert q["code_challenge_method"] == ["S256"] and q["redirect_uri"][0].endswith("/config/provedores/mercadolivre/api/retorno")
+
+    posts = []
+
+    class Resp:
+        status_code = 200
+        def __init__(self, body): self.body = body
+        def json(self): return self.body
+
+    def post(url, data, timeout, headers):
+        posts.append(data)
+        n = len(posts)
+        return Resp({"access_token": f"AT{n}", "refresh_token": f"RT{n}", "expires_in": 21600, "user_id": 42})
+    monkeypatch.setattr(ml_api.requests, "post", post)
+
+    c.get("/config/provedores/mercadolivre/api/retorno?code=TG-1&state=errado")
+    assert not posts  # state diferente não troca o code (e invalida o state pendente)
+    r = c.post("/config/provedores/mercadolivre/api/autorizar", data={"csrf": token})
+    state = parse_qs(urlparse(r.headers["Location"]).query)["state"][0]
+    c.get(f"/config/provedores/mercadolivre/api/retorno?code=TG-1&state={state}")
+    assert posts[0]["grant_type"] == "authorization_code" and posts[0]["code"] == "TG-1" and posts[0]["code_verifier"]
+    assert "Autorizada (conta 42)" in c.get("/config/provedores/mercadolivre").get_data(as_text=True)
+
+    cfg = {"client_id": "CID", "client_secret": "SEC"}
+    assert ml_api.token(cfg) == "AT1" and len(posts) == 1  # ainda válido
+    db.set_setting("mercadolivre.api_expires_at", "0")
+    assert ml_api.token(cfg) == "AT2" and posts[1] == {"grant_type": "refresh_token", "client_id": "CID",
+                                                        "client_secret": "SEC", "refresh_token": "RT1"}
+    assert db.get_setting("mercadolivre.api_refresh_token") == "RT2"  # refresh é de uso único: guarda o novo
+
+    assert ml_api.code_from("https://example.com/retorno?code=TG-abc&state=x") == "TG-abc"
+    c.post("/config/provedores/mercadolivre/api/desconectar", data={"csrf": token})
+    assert not ml_api.status()["authorized"]

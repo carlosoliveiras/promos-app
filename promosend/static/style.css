@@ -54,7 +54,7 @@ td, th { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; v
 .providers { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 .providers a { text-decoration: none; }
 .side a, .side button { overflow: hidden; white-space: nowrap; }
-.card .name, td { overflow-wrap: anywhere; }
+.card .name, td, code { overflow-wrap: anywhere; }
 
 .tag.log-ok { color: var(--ok); } .tag.log-erro { color: var(--err); } .tag.log-aviso { color: #b45309; } .tag.log-info { color: var(--muted); }
 .log-details { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; max-height: 320px; overflow: auto; margin: 6px 0 0; }

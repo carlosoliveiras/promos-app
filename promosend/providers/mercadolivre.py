@@ -5,16 +5,24 @@ import time
 
 import requests
 
-from . import require
+from . import ml_api, require
 
 NAME = "Mercado Livre"
 TERM_LABEL = "URLs de categoria"
-TERM_HELP = "Uma URL de listagem do Mercado Livre por linha (ofertas, categorias, buscas)."
+TERM_HELP = ("Um por linha. Fonte página: URL de listagem (ofertas, categorias, buscas). "
+             "Fonte API: ID da categoria (ex.: MLB1055) ou URL com category=MLB...")
+EXTRA_TEMPLATE = "ml_api.html"
 FIELDS = [
+    {"key": "fonte", "label": "Fonte da busca", "type": "select", "default": "pagina",
+     "options": [("pagina", "Página do site (raspagem)"), ("api", "API oficial do Mercado Livre (OAuth)")]},
     {"key": "cookies", "label": "Cookies da conta de afiliado (texto ou JSON exportado da extensão)",
      "type": "textarea", "secret": True},
     {"key": "csrf_token", "label": "x-csrf-token (do linkbuilder)", "type": "password", "secret": True},
     {"key": "tag", "label": "Tag de afiliado", "type": "text"},
+    {"key": "client_id", "label": "Client ID do app (API oficial)", "type": "text"},
+    {"key": "client_secret", "label": "Client Secret do app (API oficial)", "type": "password", "secret": True},
+    {"key": "redirect_uri", "label": "Redirect URI cadastrada no app (API oficial; em branco usa a do PromoSend)",
+     "type": "text"},
 ]
 DEFAULT_CRONS = {"busca": "0 7 * * *", "links": "0 8 * * *", "limpeza": "0 0 * * *"}
 SEARCH_DELAY = 10
@@ -123,6 +131,8 @@ BLOCKED = ("/captcha/", "account-verification")
 
 
 def search(term, cfg):
+    if cfg.get("fonte") == "api":
+        return ml_api.search(term, cfg)
     for attempt in range(3):
         try:
             r = requests.get(term, timeout=60, headers={**HEADERS, "cookie": cookie_header(cfg.get("cookies"))})

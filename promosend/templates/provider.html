@@ -10,7 +10,11 @@
     {% for f in prov.FIELDS %}
     <label for="{{ f.key }}">{{ f.label }}</label>
     {% set placeholder = '•••••• salvo — deixe em branco para manter' if f.secret and cfg[f.key] else '' %}
-    {% if f.type == 'textarea' %}
+    {% if f.type == 'select' %}
+    <select id="{{ f.key }}" name="{{ f.key }}">
+      {% for value, text in f.options %}<option value="{{ value }}" {{ 'selected' if cfg[f.key] == value }}>{{ text }}</option>{% endfor %}
+    </select>
+    {% elif f.type == 'textarea' %}
     <textarea id="{{ f.key }}" name="{{ f.key }}" placeholder="{{ placeholder }}">{{ '' if f.secret else cfg[f.key] }}</textarea>
     {% else %}
     <input id="{{ f.key }}" name="{{ f.key }}" type="{{ f.type }}" {% if f.type == 'number' %}step="any"{% endif %}
@@ -20,6 +24,8 @@
     <p><button class="btn primary" type="submit">Salvar</button></p>
   </form>
 </div>
+
+{% if prov.EXTRA_TEMPLATE is defined %}{% include prov.EXTRA_TEMPLATE %}{% endif %}
 
 <div class="panel">
   <h2 style="margin-top:0">{{ prov.TERM_LABEL }}</h2>
