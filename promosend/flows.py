@@ -26,9 +26,10 @@ def config(pkey):
 
 def busca(pkey):
     prov, cfg = PROVIDERS[pkey], config(pkey)
-    terms = db.rows("SELECT term, grupo FROM terms WHERE provider = ? AND active = 1", pkey)
+    terms = [t for t in db.rows("SELECT term, grupo FROM terms WHERE provider = ? AND active = 1", pkey)
+             if not hasattr(prov, "accepts") or prov.accepts(t["term"], cfg)]
     if not terms:
-        return "nenhum termo ativo"
+        return "nenhum termo ativo para a configuração atual"
     job, total, failed = f"{pkey}.busca", 0, 0
     for i, t in enumerate(terms):
         if i:

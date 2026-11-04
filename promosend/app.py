@@ -127,7 +127,11 @@ def create_app():
             return redirect(url_for("provider", pkey=pkey))
         cfg = db.provider_config(pkey, prov.FIELDS)
         terms = db.rows("SELECT * FROM terms WHERE provider = ? ORDER BY id", pkey)
-        extra = {"api": ml_api.status(), "callback": ml_callback_url()} if pkey == "mercadolivre" else {}
+        extra = {}
+        if pkey == "mercadolivre":
+            extra = {"api": ml_api.status(), "callback": ml_callback_url(),
+                     "api_terms": [t for t in terms if ml_api.is_category(t["term"])]}
+            terms = [t for t in terms if not ml_api.is_category(t["term"])]
         return render_template("provider.html", pkey=pkey, prov=prov, cfg=cfg, terms=terms, **extra)
 
     def ml_callback_url():
@@ -172,6 +176,21 @@ def create_app():
             flash("Não achei o code=... na URL colada.")
             return redirect(url_for("provider", pkey="mercadolivre"))
         return ml_authorize(code)
+
+    @app.post("/config/provedores/mercadolivre/api/categorias")
+    def ml_api_categories():
+        cfg, grupo = ml_cfg(), request.form.get("grupo", "").strip()
+        added, errors = 0, []
+        for line in [x.strip() for x in request.form["categorias"].splitlines() if x.strip()]:
+            try:
+                cat_id, name = ml_api.resolve_category(line, cfg)
+            except Exception as e:
+                errors.append(str(e))
+                continue
+            added += db.execute("INSERT OR IGNORE INTO terms (provider, term, grupo) VALUES ('mercadolivre', ?, ?)",
+                                cat_id, grupo or name)
+        flash(f"{added} categoria(s) adicionada(s)." + (" Erros: " + " | ".join(errors) if errors else ""))
+        return redirect(url_for("provider", pkey="mercadolivre"))
 
     @app.post("/config/provedores/mercadolivre/api/desconectar")
     def ml_api_disconnect():

@@ -306,9 +306,12 @@ def test_logs_run_job_and_retention(app, monkeypatch):
 
 def test_ml_api_search_picks_discounted_offer(app, monkeypatch):
     from promosend.providers import mercadolivre, ml_api
-    assert ml_api.category_of("MLB1055") == ml_api.category_of("https://x/ofertas?category=mlb1055") == "MLB1055"
+    assert ml_api.is_category("MLB1055") and not ml_api.is_category("https://lista.mercadolivre.com.br/celular")
+    assert ml_api.search_text("https://lista.mercadolivre.com.br/ar-condicionado?sb=all#D[A:x]") == "ar condicionado"
+    assert ml_api.search_text("https://lista.mercadolivre.com.br/celular_Desde_51") == "celular"
+    assert ml_api.search_text(" airfryer ") == "airfryer"
     with pytest.raises(RuntimeError, match="ID da categoria"):
-        ml_api.category_of("https://lista.mercadolivre.com.br/celular")
+        mercadolivre.search("https://lista.mercadolivre.com.br/celular", {"fonte": "api"})
 
     responses = {
         "/highlights/MLB/category/MLB1055": {"content": [{"id": "P1", "type": "PRODUCT"}, {"id": "P2", "type": "PRODUCT"},
@@ -321,7 +324,7 @@ def test_ml_api_search_picks_discounted_offer(app, monkeypatch):
     }
     monkeypatch.setattr(ml_api, "get", lambda path, cfg, params=None: responses[path])
     monkeypatch.setattr(ml_api, "CALL_DELAY", 0)
-    [p] = mercadolivre.search("MLB1055", {"fonte": "api"})
+    [p] = mercadolivre.search("mlb1055", {"fonte": "api"})
     assert p == {"external_id": "MLB12", "name": "Celular X", "image": "https://img/1.jpg",
                  "url": "https://produto.mercadolivre.com.br/MLB-12", "price": 90, "price_original": 120,
                  "discount": "25% OFF"}
@@ -437,3 +440,41 @@ def test_ml_generate_links_session_csrf_and_cookie_refresh(app, monkeypatch):
     monkeypatch.setattr(ml.requests, "Session", lambda: fake3)
     with pytest.raises(RuntimeError, match="anti-robô"):
         list(ml.generate_links(["u1"], cfg))
+
+
+def test_ml_api_category_registration_and_source_split(app, monkeypatch):
+    from promosend import db, flows
+    from promosend.providers import mercadolivre, ml_api
+
+    class Resp:
+        def __init__(self, status, body): self.status_code, self.body = status, body
+        def raise_for_status(self): pass
+        def json(self): return self.body
+
+    names = {"MLB1055": "Celulares e Smartphones", "MLB1646": "Ares Condicionados"}
+    monkeypatch.setattr(ml_api.requests, "get", lambda url, timeout: Resp(200, {"name": names[url.rsplit("/", 1)[1]]})
+                        if url.rsplit("/", 1)[1] in names else Resp(404, {}))
+    discovered = {"ar condicionado": "MLB1646", "celular": "MLB1055"}
+    monkeypatch.setattr(ml_api, "get", lambda path, cfg, params: [{"category_id": discovered[params["q"]]}]
+                        if params["q"] in discovered else [])
+
+    c, token = login(app)
+    c.post("/config/provedores/mercadolivre/termos", data={"terms": "https://lista.mercadolivre.com.br/tvs", "csrf": token})
+    c.post("/config/provedores/mercadolivre/api/categorias", data={
+        "categorias": "MLB1055\nhttps://lista.mercadolivre.com.br/ar-condicionado?sb=all\nayrfrair\nMLB999", "csrf": token})
+    terms = {t["term"]: t["grupo"] for t in db.rows("SELECT term, grupo FROM terms")}
+    assert terms == {"https://lista.mercadolivre.com.br/tvs": "", "MLB1055": "Celulares e Smartphones",
+                     "MLB1646": "Ares Condicionados"}
+    page = c.get("/config/provedores/mercadolivre").get_data(as_text=True)
+    assert "ayrfrair" in page and "MLB999 não existe" in page  # erros aparecem para o usuário
+
+    seen = []
+    monkeypatch.setattr(mercadolivre, "search", lambda term, cfg: seen.append(term) or [])
+    monkeypatch.setattr(mercadolivre, "SEARCH_DELAY", 0)
+    db.set_setting("mercadolivre.fonte", "api")
+    flows.busca("mercadolivre")
+    assert sorted(seen) == ["MLB1055", "MLB1646"]
+    seen.clear()
+    db.set_setting("mercadolivre.fonte", "pagina")
+    flows.busca("mercadolivre")
+    assert seen == ["https://lista.mercadolivre.com.br/tvs"]

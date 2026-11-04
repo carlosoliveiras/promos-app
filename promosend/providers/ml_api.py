@@ -9,7 +9,7 @@ import hashlib
 import re
 import secrets
 import time
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 
@@ -110,18 +110,46 @@ def get(path, cfg, params=None):
     return r.json()
 
 
-def category_of(term):
-    """MLB1055, ou uma URL com category=MLB1055 / _CategID_MLB1055."""
-    m = re.search(r"(?:^|category=|_CategID_)(MLB\d+)", term.strip(), re.I)
-    if not m:
-        raise RuntimeError("na fonte API o termo precisa ser o ID da categoria (ex.: MLB1055) "
-                           "ou uma URL com category=MLB...")
-    return m.group(1).upper()
+def search_text(term):
+    """Texto de busca do termo: 'airfryer', ou o da URL de listagem (lista.mercadolivre.com.br/ar-condicionado)."""
+    term = term.strip()
+    if not term.lower().startswith("http"):
+        return term
+    first = unquote(urlparse(term).path.strip("/").split("/")[0]).split("_")[0]
+    return first.replace("-", " ").strip()
+
+
+def is_category(term):
+    """Termos da fonte API são só o ID da categoria (MLB1055); o resto é URL da fonte página."""
+    return bool(re.fullmatch(r"MLB\d+", term.strip(), re.I))
+
+
+def resolve_category(text, cfg):
+    """Na hora do cadastro: ID, URL com category=MLB..., palavra ou URL de listagem -> (ID, nome da categoria)."""
+    m = re.search(r"(?:^|category=|_CategID_)(MLB\d+)", text.strip(), re.I)
+    if m:
+        cat_id = m.group(1).upper()
+    else:
+        words = search_text(text)
+        if not words:
+            raise RuntimeError(f"{text!r}: vitrines e cupons não existem na API; use o ID ou uma palavra-chave")
+        found = get("/sites/MLB/domain_discovery/search", cfg, {"q": words, "limit": 1})
+        if not found or not found[0].get("category_id"):
+            raise RuntimeError(f"a API do ML não achou categoria para {words!r}; confira a grafia")
+        cat_id = found[0]["category_id"]
+    r = requests.get(f"{API}/categories/{cat_id}", timeout=30)  # público, sem token
+    if r.status_code == 404:
+        raise RuntimeError(f"a categoria {cat_id} não existe no Mercado Livre")
+    r.raise_for_status()
+    return cat_id, r.json().get("name") or cat_id
 
 
 def search(term, cfg, sleep=time.sleep):
     """Mais vendidos da categoria; de cada produto, a oferta mais barata com desconto (> 3%)."""
-    highlights = get(f"/highlights/MLB/category/{category_of(term)}", cfg)
+    if not is_category(term):
+        raise RuntimeError("na fonte API o termo precisa ser o ID da categoria (ex.: MLB1055); "
+                           "cadastre em Provedores > Mercado Livre > Categorias da API")
+    highlights = get(f"/highlights/MLB/category/{term.strip().upper()}", cfg)
     out = []
     for pid in [x["id"] for x in highlights.get("content", []) if x.get("type") == "PRODUCT"]:
         sleep(CALL_DELAY)

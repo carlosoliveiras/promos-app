@@ -11,8 +11,8 @@ from . import ml_api, require
 
 NAME = "Mercado Livre"
 TERM_LABEL = "URLs de categoria"
-TERM_HELP = ("Um por linha. Fonte página: URL de listagem (ofertas, categorias, buscas). "
-             "Fonte API: ID da categoria (ex.: MLB1055) ou URL com category=MLB...")
+TERM_HELP = ("Uma URL de listagem do Mercado Livre por linha (ofertas, categorias, buscas). "
+             "Usadas quando a fonte da busca é a página; para a API, cadastre as categorias no painel da API.")
 EXTRA_TEMPLATE = "ml_api.html"
 FIELDS = [
     {"key": "fonte", "label": "Fonte da busca", "type": "select", "default": "pagina",
@@ -165,6 +165,11 @@ def parse(page):
 
 
 BLOCKED = ("/captcha/", "account-verification")
+
+
+def accepts(term, cfg):
+    """Cada fonte usa a sua lista: categorias (MLB1055) na API, URLs na página."""
+    return ml_api.is_category(term) == (cfg.get("fonte") == "api")
 
 
 def search(term, cfg):

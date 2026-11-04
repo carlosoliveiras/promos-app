@@ -25,6 +25,39 @@
     </form>
     {% endif %}
   </div>
+  <h2>Categorias da API</h2>
+  <p class="muted">Usadas quando a fonte da busca é a API. A busca traz os mais vendidos de cada categoria que estejam com desconto.</p>
+  <form method="post" action="{{ url_for('ml_api_categories') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label for="categorias">Adicionar categorias</label>
+    <textarea id="categorias" name="categorias" required placeholder="MLB1055&#10;airfryer&#10;ar condicionado"></textarea>
+    <div class="muted">Uma por linha: o ID (MLB1055) ou uma palavra; a palavra é convertida no ID da categoria
+      (precisa estar autorizado).</div>
+    <label for="cat_grupo">Grupo (opcional; em branco usa o nome da categoria)</label>
+    <input id="cat_grupo" name="grupo">
+    <p><button class="btn primary" type="submit">Adicionar</button></p>
+  </form>
+  {% if api_terms %}
+  <table class="stack">
+    <tr><th>Categoria</th><th>Grupo</th><th>Ativo</th><th></th></tr>
+    {% for t in api_terms %}
+    <tr>
+      <td data-label="Categoria"><a href="https://lista.mercadolivre.com.br/_CategID_{{ t.term }}" target="_blank" rel="noopener">{{ t.term }}</a></td>
+      <td data-label="Grupo">{{ t.grupo or "—" }}</td>
+      <td data-label="Ativo">{{ 'Sim' if t.active else 'Não' }}</td>
+      <td class="row">
+        {% for action, label in [('alternar', 'Desativar' if t.active else 'Ativar'), ('excluir', 'Excluir')] %}
+        <form method="post" action="{{ url_for('term_action', tid=t.id, action=action) }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="btn small" type="submit">{{ label }}</button>
+        </form>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Nenhuma categoria cadastrada.</p>{% endif %}
+
   <details style="margin-top:12px">
     <summary class="muted">A Redirect URI não é a do PromoSend? Cole aqui a URL de retorno</summary>
     <form method="post" action="{{ url_for('ml_api_code') }}">
