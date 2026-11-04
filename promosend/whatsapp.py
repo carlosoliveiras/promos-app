@@ -4,6 +4,19 @@ import base64
 import requests
 
 
+def _call(method, base_url, path, headers, **kw):
+    if not base_url:
+        raise RuntimeError("configure a URL do wuzapi")
+    r = requests.request(method, base_url.rstrip("/") + path, headers=headers, timeout=60, **kw)
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    if not r.ok or body.get("success") is False:
+        raise RuntimeError(body.get("error") or f"HTTP {r.status_code}")
+    return body.get("data") or {}
+
+
 def image_data_url(url):
     """O wuzapi só aceita imagem embutida em base64."""
     r = requests.get(url, timeout=30)
@@ -15,15 +28,31 @@ def image_data_url(url):
 
 
 def send_image(base_url, token, jid, image, caption):
-    r = requests.post(base_url.rstrip("/") + "/chat/send/image", headers={"Token": token}, timeout=60,
-                      json={"Phone": jid, "Image": image, "Caption": caption})
-    r.raise_for_status()
+    _call("POST", base_url, "/chat/send/image", {"Token": token}, json={"Phone": jid, "Image": image, "Caption": caption})
 
 
 def list_groups(base_url, token):
-    if not base_url:
-        raise RuntimeError("configure a URL do wuzapi")
-    r = requests.get(base_url.rstrip("/") + "/group/list", headers={"Token": token}, timeout=30)
-    r.raise_for_status()
-    groups = (r.json().get("data") or {}).get("Groups") or []
+    groups = _call("GET", base_url, "/group/list", {"Token": token}).get("Groups") or []
     return sorted(({"jid": g["JID"], "name": g.get("Name") or g["JID"]} for g in groups), key=lambda g: g["name"].lower())
+
+
+def create_user(base_url, admin_token, name, token):
+    _call("POST", base_url, "/admin/users", {"Authorization": admin_token}, json={"name": name, "token": token})
+
+
+def status(base_url, token):
+    """{'connected': bool, 'loggedIn': bool}"""
+    return _call("GET", base_url, "/session/status", {"Token": token})
+
+
+def connect(base_url, token):
+    _call("POST", base_url, "/session/connect", {"Token": token}, json={"Subscribe": ["Message"], "Immediate": True})
+
+
+def qr(base_url, token):
+    code = _call("GET", base_url, "/session/qr", {"Token": token}).get("QRCode") or ""
+    return code if code.startswith("data:image/png;base64,") else None
+
+
+def logout(base_url, token):
+    _call("POST", base_url, "/session/logout", {"Token": token})

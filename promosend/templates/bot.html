@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ bot.name }} · PromoSend{% endblock %}
+{% block head %}{% if waiting_qr %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block content %}
 <h1><a href="{{ url_for('whatsapp_config') }}">WhatsApp</a> / {{ bot.name }}</h1>
 
@@ -11,6 +12,36 @@
   <input id="token" name="token" type="password" placeholder="•••••• salvo — deixe em branco para manter" autocomplete="off">
   <p><button class="btn primary" type="submit">Salvar</button></p>
 </form>
+
+<div class="panel">
+  <h2 style="margin-top:0">Conexão com o WhatsApp</h2>
+  {% if conn is none %}
+  <p class="muted">Status indisponível. Confira a URL do wuzapi e o token do bot.</p>
+  {% elif conn.loggedIn %}
+  <p class="status-ok">Conectado{% if conn.jid %} como {{ conn.jid.split('@')[0].split(':')[0].split('.')[0] }}{% endif %}.</p>
+  {% elif qr %}
+  <p>No celular, abra o WhatsApp &gt; Aparelhos conectados &gt; Conectar um aparelho e leia o código:</p>
+  <img src="{{ qr }}" alt="QR code para conectar o WhatsApp" width="264" height="264" style="background:#fff;padding:8px;border-radius:8px">
+  <p class="muted">A página atualiza sozinha a cada 5 segundos.</p>
+  {% elif waiting_qr %}
+  <p class="muted">Gerando o QR code… a página atualiza sozinha.</p>
+  {% else %}
+  <p class="muted">Desconectado.</p>
+  {% endif %}
+  <div class="row">
+    {% if not (conn and conn.loggedIn) %}
+    <form method="post" action="{{ url_for('bot_session', bid=bot.id, action='conectar') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="btn primary" type="submit">{{ 'Gerar novo QR code' if qr else 'Conectar WhatsApp' }}</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('bot_session', bid=bot.id, action='desconectar') }}" onsubmit="return confirm('Desconectar o WhatsApp deste bot?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="btn" type="submit">Desconectar</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
 
 <div class="panel">
   <div class="row" style="justify-content:space-between">

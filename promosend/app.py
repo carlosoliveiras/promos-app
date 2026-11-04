@@ -174,11 +174,14 @@ def create_app():
     def whatsapp_config():
         if request.method == "POST":
             db.set_setting("whatsapp.url", request.form["url"].strip())
-            flash("URL do wuzapi salva.")
+            if request.form.get("admin_token", "").strip():  # em branco mantém o token salvo
+                db.set_setting("whatsapp.admin_token", request.form["admin_token"].strip())
+            flash("Configuração do wuzapi salva.")
             return redirect(url_for("whatsapp_config"))
         bots = db.rows("SELECT b.*, (SELECT COUNT(*) FROM bot_groups g WHERE g.bot_id = b.id) AS groups "
                        "FROM bots b ORDER BY b.name")
         return render_template("whatsapp.html", url=db.get_setting("whatsapp.url"), bots=bots,
+                               has_admin=bool(db.get_setting("whatsapp.admin_token")),
                                post_count=db.get_setting("whatsapp.post_count", "1"),
                                job=db.row("SELECT * FROM jobs WHERE id = ?", POST_JOB))
 
@@ -199,10 +202,21 @@ def create_app():
     @app.post("/config/whatsapp/bots")
     def add_bot():
         name, token = request.form["name"].strip(), request.form["token"].strip()
-        if name and token:
-            db.execute("INSERT INTO bots (name, token) VALUES (?, ?)", name, token)
-            flash("Bot cadastrado.")
-        return redirect(url_for("whatsapp_config"))
+        admin_token = db.get_setting("whatsapp.admin_token")
+        if not name or not (token or admin_token):
+            flash("Informe o nome e o token do bot, ou salve o token de admin do wuzapi para criá-lo automaticamente.")
+            return redirect(url_for("whatsapp_config"))
+        if not token:
+            token = secrets.token_hex(16)
+            try:
+                whatsapp.create_user(db.get_setting("whatsapp.url"), admin_token, name, token)
+            except Exception as e:
+                flash(f"Não foi possível criar o bot no wuzapi: {e}")
+                return redirect(url_for("whatsapp_config"))
+        with db.connect() as con:
+            bid = con.execute("INSERT INTO bots (name, token) VALUES (?, ?)", (name, token)).lastrowid
+        flash("Bot cadastrado. Conecte o WhatsApp lendo o QR code.")
+        return redirect(url_for("bot", bid=bid))
 
     def get_bot(bid):
         return db.row("SELECT * FROM bots WHERE id = ?", bid) or abort(404)
@@ -230,12 +244,37 @@ def create_app():
             flash("Bot salvo.")
             return redirect(url_for("bot", bid=bid))
         selected = {g["jid"]: g["name"] for g in db.rows("SELECT * FROM bot_groups WHERE bot_id = ?", bid)}
+        url, conn, qr = db.get_setting("whatsapp.url"), None, None
+        try:
+            conn = whatsapp.status(url, b["token"])
+            if request.args.get("qr") and conn.get("connected") and not conn.get("loggedIn"):
+                qr = whatsapp.qr(url, b["token"])
+        except Exception as e:
+            flash(f"Não foi possível consultar o wuzapi: {e}")
         groups = None
         if request.args.get("listar"):
             try:
                 groups = whatsapp.list_groups(db.get_setting("whatsapp.url"), b["token"])
             except Exception as e:
                 flash(f"Não foi possível listar os grupos: {e}")
-        return render_template("bot.html", bot=b, selected=selected, groups=groups)
+        return render_template("bot.html", bot=b, selected=selected, groups=groups, conn=conn, qr=qr,
+                               waiting_qr=bool(request.args.get("qr")) and not (conn or {}).get("loggedIn"))
+
+    @app.post("/config/whatsapp/bots/<int:bid>/<action>")
+    def bot_session(bid, action):
+        b, url = get_bot(bid), db.get_setting("whatsapp.url")
+        try:
+            if action == "conectar":
+                if not whatsapp.status(url, b["token"]).get("connected"):
+                    whatsapp.connect(url, b["token"])
+                return redirect(url_for("bot", bid=bid, qr=1))
+            if action == "desconectar":
+                whatsapp.logout(url, b["token"])
+                flash("WhatsApp desconectado do bot.")
+            else:
+                abort(404)
+        except RuntimeError as e:
+            flash(f"Erro no wuzapi: {e}")
+        return redirect(url_for("bot", bid=bid))
 
     return app

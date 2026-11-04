@@ -110,6 +110,23 @@ def login(app):
     return c, csrf(c, "/config/whatsapp")
 
 
+class FakeWuzapi:
+    """Simula as respostas do wuzapi por caminho e guarda as chamadas."""
+    def __init__(self, routes):
+        self.routes, self.calls = routes, []
+
+    def __call__(self, method, url, headers, timeout, json=None):
+        path = "/" + url.split("/", 3)[3]
+        self.calls.append((method, path, headers, json))
+        status, body = self.routes.get((method, path), (404, {"success": False, "error": "nao mapeado"}))
+
+        class Resp:
+            ok = status < 400
+            status_code = status
+            def json(self): return body
+        return Resp()
+
+
 def test_whatsapp_bots_and_groups(app, monkeypatch):
     from promosend import db, whatsapp
     c, token = login(app)
@@ -117,16 +134,15 @@ def test_whatsapp_bots_and_groups(app, monkeypatch):
     c.post("/config/whatsapp/bots", data={"name": "Bot 1", "token": "tok123", "csrf": token})
     bid = db.row("SELECT id FROM bots")["id"]
 
-    class Resp:
-        def raise_for_status(self): pass
-        def json(self):
-            return {"data": {"Groups": [{"JID": "2@g.us", "Name": "Zeta"}, {"JID": "1@g.us", "Name": "Alfa | ofertas"}]}}
-
-    calls = []
-    monkeypatch.setattr(whatsapp.requests, "get", lambda url, headers, timeout: calls.append((url, headers)) or Resp())
+    wuz = FakeWuzapi({
+        ("GET", "/session/status"): (200, {"success": True, "data": {"connected": True, "loggedIn": True}}),
+        ("GET", "/group/list"): (200, {"success": True, "data": {"Groups": [
+            {"JID": "2@g.us", "Name": "Zeta"}, {"JID": "1@g.us", "Name": "Alfa | ofertas"}]}}),
+    })
+    monkeypatch.setattr(whatsapp.requests, "request", wuz)
     page = c.get(f"/config/whatsapp/bots/{bid}?listar=1").get_data(as_text=True)
-    assert calls == [("http://wuz:8080/group/list", {"Token": "tok123"})]
-    assert page.index("Alfa") < page.index("Zeta")
+    assert ("GET", "/group/list", {"Token": "tok123"}, None) in wuz.calls
+    assert page.index("Alfa") < page.index("Zeta") and "Conectado" in page
 
     c.post(f"/config/whatsapp/bots/{bid}", data={"name": "Bot 1", "token": "", "groups_form": "1",
                                                  "group": ["1@g.us|Alfa | ofertas"], "csrf": token})
@@ -135,6 +151,46 @@ def test_whatsapp_bots_and_groups(app, monkeypatch):
     assert "tok123" not in c.get("/config/whatsapp").get_data(as_text=True)
     c.post(f"/config/whatsapp/bots/{bid}/excluir", data={"csrf": token})
     assert not db.rows("SELECT * FROM bot_groups")
+
+
+def test_whatsapp_auto_create_and_qr(app, monkeypatch):
+    from promosend import db, whatsapp
+    c, token = login(app)
+    # sem token de admin, bot sem token é recusado
+    c.post("/config/whatsapp", data={"url": "http://wuz:8080", "csrf": token})
+    c.post("/config/whatsapp/bots", data={"name": "Novo", "token": "", "csrf": token})
+    assert not db.rows("SELECT * FROM bots")
+
+    qr_png = "data:image/png;base64,iVBORw0KGgo="
+    wuz = FakeWuzapi({
+        ("POST", "/admin/users"): (200, {"success": True, "data": {"id": "x"}}),
+        ("GET", "/session/status"): (200, {"success": True, "data": {"connected": False, "loggedIn": False}}),
+        ("POST", "/session/connect"): (200, {"success": True, "data": {"details": "Connected!"}}),
+        ("GET", "/session/qr"): (200, {"success": True, "data": {"QRCode": qr_png}}),
+    })
+    monkeypatch.setattr(whatsapp.requests, "request", wuz)
+    c.post("/config/whatsapp", data={"url": "http://wuz:8080", "admin_token": "ADM", "csrf": token})
+    r = c.post("/config/whatsapp/bots", data={"name": "Novo", "token": "", "csrf": token})
+    b = db.row("SELECT * FROM bots")
+    assert r.headers["Location"].endswith(f"/config/whatsapp/bots/{b['id']}")
+    [(method, path, headers, body)] = [x for x in wuz.calls if x[1] == "/admin/users"]
+    assert headers == {"Authorization": "ADM"} and body == {"name": "Novo", "token": b["token"]} and len(b["token"]) == 32
+
+    r = c.post(f"/config/whatsapp/bots/{b['id']}/conectar", data={"csrf": token})
+    assert r.headers["Location"].endswith("?qr=1")
+    assert any(x[1] == "/session/connect" for x in wuz.calls)
+    wuz.routes[("GET", "/session/status")] = (200, {"success": True, "data": {"connected": True, "loggedIn": False}})
+    page = c.get(f"/config/whatsapp/bots/{b['id']}?qr=1").get_data(as_text=True)
+    assert qr_png in page and 'http-equiv="refresh"' in page
+
+    wuz.routes[("GET", "/session/status")] = (200, {"success": True, "data": {"connected": True, "loggedIn": True}})
+    page = c.get(f"/config/whatsapp/bots/{b['id']}?qr=1").get_data(as_text=True)
+    assert "Conectado" in page and 'http-equiv="refresh"' not in page
+
+    # erro do wuzapi aparece para o usuário
+    wuz.routes[("POST", "/session/logout")] = (500, {"success": False, "error": "not logged in"})
+    c.post(f"/config/whatsapp/bots/{b['id']}/desconectar", data={"csrf": token})
+    assert "not logged in" in c.get(f"/config/whatsapp/bots/{b['id']}").get_data(as_text=True)
 
 
 def test_postagem(app, monkeypatch):

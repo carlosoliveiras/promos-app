@@ -8,7 +8,11 @@
   <form method="post">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label for="url">URL do wuzapi</label>
-    <input id="url" name="url" value="{{ url }}" placeholder="http://localhost:8080" required>
+    <input id="url" name="url" value="{{ url }}" placeholder="http://127.0.0.1:8080" required>
+    <label for="admin_token">Token de admin do wuzapi (opcional)</label>
+    <input id="admin_token" name="admin_token" type="password" autocomplete="off"
+           placeholder="{{ '•••••• salvo — deixe em branco para manter' if has_admin else 'WUZAPI_ADMIN_TOKEN do .env' }}">
+    <div class="muted">Com ele, o PromoSend cria os bots no wuzapi sozinho.</div>
     <p><button class="btn primary" type="submit">Salvar</button></p>
   </form>
 </div>
@@ -36,13 +40,14 @@
   {% else %}<p class="muted">Nenhum bot cadastrado.</p>{% endif %}
 
   <h2>Novo bot</h2>
-  <p class="muted">Depois de cadastrar, clique em Configurar para escolher os grupos em que o bot posta.</p>
+  <p class="muted">Depois de cadastrar, conecte o WhatsApp pelo QR code e escolha os grupos em que o bot posta.</p>
   <form method="post" action="{{ url_for('add_bot') }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label for="name">Nome</label>
     <input id="name" name="name" required placeholder="ex.: Shoppinho 2">
     <label for="token">Token do usuário no wuzapi</label>
-    <input id="token" name="token" type="password" required autocomplete="off">
+    <input id="token" name="token" type="password" autocomplete="off" {{ '' if has_admin else 'required' }}
+           placeholder="{{ 'em branco: cria um bot novo no wuzapi' if has_admin else '' }}">
     <p><button class="btn primary" type="submit">Cadastrar</button></p>
   </form>
 </div>
