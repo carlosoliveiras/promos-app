@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Agendamentos · PromoSend{% endblock %}
+{% block content %}
+<h1>Agendamentos</h1>
+<p class="muted">Formato cron de 5 campos: minuto hora dia mês dia-da-semana. Ex.: <code>0 7-20/3 * * *</code> = a cada 3 h das 7 às 20.</p>
+<div class="panel">
+<table class="stack">
+  <tr><th>Fluxo</th><th>Cron</th><th>Ativo</th><th></th><th>Última execução</th></tr>
+  {% for j in jobs %}
+  {% set pkey, flow = j.id.split('.') %}
+  <tr>
+    <td data-label="Fluxo">{{ PROVIDERS[pkey].NAME if pkey in PROVIDERS else 'WhatsApp' }}<br><span class="muted">{{ FLOW_LABELS.get(flow, flow) }}</span></td>
+    <td colspan="3" data-label="Cron">
+      <form method="post" action="{{ url_for('save_job', job_id=j.id) }}" class="row">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input name="cron" value="{{ j.cron }}" style="max-width:180px" aria-label="Cron">
+        <label class="row" style="margin:0;font-weight:400"><input type="checkbox" name="enabled" {{ 'checked' if j.enabled }}> ativo</label>
+        <button class="btn small" type="submit">Salvar</button>
+        <button class="btn small primary" type="submit" formaction="{{ url_for('run_job', job_id=j.id) }}">Executar agora</button>
+      </form>
+    </td>
+    <td data-label="Última execução">
+      {% if j.last_run %}{{ j.last_run }}<br>
+      <span class="muted {{ 'status-erro' if j.last_status.startswith('erro') else 'status-ok' }}">{{ j.last_status }}</span>
+      {% else %}<span class="muted">nunca</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

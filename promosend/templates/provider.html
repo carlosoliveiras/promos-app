@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ prov.NAME }} · PromoSend{% endblock %}
+{% block content %}
+<h1><a href="{{ url_for('providers') }}">Provedores</a> / {{ prov.NAME }}</h1>
+
+<div class="panel">
+  <h2 style="margin-top:0">Credenciais e filtros</h2>
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    {% for f in prov.FIELDS %}
+    <label for="{{ f.key }}">{{ f.label }}</label>
+    {% set placeholder = '•••••• salvo — deixe em branco para manter' if f.secret and cfg[f.key] else '' %}
+    {% if f.type == 'textarea' %}
+    <textarea id="{{ f.key }}" name="{{ f.key }}" placeholder="{{ placeholder }}">{{ '' if f.secret else cfg[f.key] }}</textarea>
+    {% else %}
+    <input id="{{ f.key }}" name="{{ f.key }}" type="{{ f.type }}" {% if f.type == 'number' %}step="any"{% endif %}
+           value="{{ '' if f.secret else cfg[f.key] }}" placeholder="{{ placeholder }}" autocomplete="off">
+    {% endif %}
+    {% endfor %}
+    <p><button class="btn primary" type="submit">Salvar</button></p>
+  </form>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">{{ prov.TERM_LABEL }}</h2>
+  <form method="post" action="{{ url_for('add_terms', pkey=pkey) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label for="terms">Adicionar</label>
+    <textarea id="terms" name="terms" required></textarea>
+    <div class="muted">{{ prov.TERM_HELP }}</div>
+    <label for="grupo">Grupo (opcional)</label>
+    <input id="grupo" name="grupo" placeholder="ex.: Geral, Fitness">
+    <p><button class="btn primary" type="submit">Adicionar</button></p>
+  </form>
+  {% if terms %}
+  <table class="stack">
+    <tr><th>Termo</th><th>Grupo</th><th>Ativo</th><th></th></tr>
+    {% for t in terms %}
+    <tr>
+      <td data-label="Termo">{{ t.term }}</td>
+      <td data-label="Grupo">{{ t.grupo or "—" }}</td>
+      <td data-label="Ativo">{{ 'Sim' if t.active else 'Não' }}</td>
+      <td class="row">
+        {% for action, label in [('alternar', 'Desativar' if t.active else 'Ativar'), ('excluir', 'Excluir')] %}
+        <form method="post" action="{{ url_for('term_action', tid=t.id, action=action) }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="btn small" type="submit">{{ label }}</button>
+        </form>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

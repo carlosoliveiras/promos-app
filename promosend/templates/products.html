@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Produtos · PromoSend{% endblock %}
+{% block content %}
+<h1>Produtos <span class="muted">({{ total }})</span></h1>
+<form class="filters" method="get">
+  <select name="provider" onchange="this.form.submit()" aria-label="Provedor">
+    <option value="">Todos os provedores</option>
+    {% for k, p in PROVIDERS.items() %}<option value="{{ k }}" {{ 'selected' if provider == k }}>{{ p.NAME }}</option>{% endfor %}
+  </select>
+  <select name="status" onchange="this.form.submit()" aria-label="Status">
+    <option value="">Todos os status</option>
+    {% for s in ['PENDENTE', 'PRONTO', 'ENVIADO'] %}<option {{ 'selected' if status == s }}>{{ s }}</option>{% endfor %}
+  </select>
+</form>
+
+{% if items %}
+<div class="grid">
+  {% for p in items %}
+  <article class="card">
+    <img src="{{ p.image }}" alt="" loading="lazy">
+    <div class="body">
+      <div class="name" title="{{ p.name }}">{{ p.name }}</div>
+      {% if p.price_original %}<div class="old">{{ p.price_original | brl }}</div>{% endif %}
+      <div class="price">{{ p.price | brl }} {% if p.discount %}<span class="muted">{{ p.discount }}</span>{% endif %}</div>
+      <div class="muted">
+        {{ PROVIDERS[p.provider].NAME if p.provider in PROVIDERS else p.provider }}
+        {% if p.grupo %} · {{ p.grupo }}{% endif %}
+        {% if p.sales %} · {{ p.sales }} vendas{% endif %}
+        {% if p.commission %} · {{ '%.0f' % (p.commission * 100) }}% comissão{% endif %}
+      </div>
+      <div class="foot">
+        <span class="tag {{ p.status }}">{{ p.status }}</span>
+        <a class="btn small" href="{{ p.affiliate_url or p.url }}" target="_blank" rel="noopener">
+          {{ 'Link afiliado' if p.affiliate_url else 'Ver produto' }}</a>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% if pages > 1 %}
+<nav class="pager" aria-label="Paginação">
+  {% if page > 1 %}<a class="btn" href="{{ url_for('products', provider=provider, status=status, page=page - 1) }}">Anterior</a>{% endif %}
+  <span class="muted">Página {{ page }} de {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="{{ url_for('products', provider=provider, status=status, page=page + 1) }}">Próxima</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="panel">Nenhum produto ainda. Configure um <a href="{{ url_for('providers') }}">provedor</a> e rode a busca em <a href="{{ url_for('jobs') }}">Agendamentos</a>.</div>
+{% endif %}
+{% endblock %}

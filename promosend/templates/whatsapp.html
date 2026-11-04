@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp · PromoSend{% endblock %}
+{% block content %}
+<h1>WhatsApp</h1>
+
+<div class="panel">
+  <h2 style="margin-top:0">Serviço wuzapi</h2>
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label for="url">URL do wuzapi</label>
+    <input id="url" name="url" value="{{ url }}" placeholder="http://localhost:8080" required>
+    <p><button class="btn primary" type="submit">Salvar</button></p>
+  </form>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Bots</h2>
+  {% if bots %}
+  <table class="stack">
+    <tr><th>Nome</th><th>Token</th><th>Grupos de postagem</th><th></th></tr>
+    {% for b in bots %}
+    <tr>
+      <td data-label="Nome"><a href="{{ url_for('bot', bid=b.id) }}">{{ b.name }}</a></td>
+      <td class="muted" data-label="Token">••••{{ b.token[-4:] }}</td>
+      <td data-label="Grupos de postagem">{{ b.groups }}</td>
+      <td class="row">
+        <a class="btn small" href="{{ url_for('bot', bid=b.id) }}">Configurar</a>
+        <form method="post" action="{{ url_for('delete_bot', bid=b.id) }}" onsubmit="return confirm('Excluir este bot?')">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="btn small" type="submit">Excluir</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Nenhum bot cadastrado.</p>{% endif %}
+
+  <h2>Novo bot</h2>
+  <p class="muted">Depois de cadastrar, clique em Configurar para escolher os grupos em que o bot posta.</p>
+  <form method="post" action="{{ url_for('add_bot') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label for="name">Nome</label>
+    <input id="name" name="name" required placeholder="ex.: Shoppinho 2">
+    <label for="token">Token do usuário no wuzapi</label>
+    <input id="token" name="token" type="password" required autocomplete="off">
+    <p><button class="btn primary" type="submit">Cadastrar</button></p>
+  </form>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Fluxo de postagem</h2>
+  <p class="muted">Em cada execução, sorteia produtos com status PRONTO e posta em todos os grupos dos bots marcados,
+    com intervalo aleatório de 1 a 5 segundos entre cada postagem. Produto postado vira ENVIADO.</p>
+  <form method="post" action="{{ url_for('save_posting') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Bots que postam</label>
+    {% for b in bots %}
+    <label class="row" style="font-weight:400;margin:4px 0"><input type="checkbox" name="bot" value="{{ b.id }}" {{ 'checked' if b.posts }}>
+      {{ b.name }} <span class="muted">({{ b.groups }} grupos)</span></label>
+    {% else %}<p class="muted">Cadastre um bot acima.</p>{% endfor %}
+    <label for="post_count">Produtos por execução</label>
+    <input id="post_count" name="post_count" type="number" min="1" value="{{ post_count }}" style="max-width:120px">
+    <label for="cron">Cron</label>
+    <div class="row">
+      <input id="cron" name="cron" value="{{ job.cron }}" style="max-width:180px">
+      <label class="row" style="margin:0;font-weight:400"><input type="checkbox" name="enabled" {{ 'checked' if job.enabled }}> ativo</label>
+    </div>
+    <p class="row">
+      <button class="btn primary" type="submit">Salvar</button>
+      <button class="btn" type="submit" formaction="{{ url_for('run_job', job_id=job.id) }}">Executar agora</button>
+      {% if job.last_run %}<span class="muted {{ 'status-erro' if job.last_status.startswith('erro') else 'status-ok' }}">
+        {{ job.last_run }}: {{ job.last_status }}</span>{% endif %}
+    </p>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ bot.name }} · PromoSend{% endblock %}
+{% block content %}
+<h1><a href="{{ url_for('whatsapp_config') }}">WhatsApp</a> / {{ bot.name }}</h1>
+
+<form method="post" class="panel">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label for="name">Nome</label>
+  <input id="name" name="name" value="{{ bot.name }}" required>
+  <label for="token">Token</label>
+  <input id="token" name="token" type="password" placeholder="•••••• salvo — deixe em branco para manter" autocomplete="off">
+  <p><button class="btn primary" type="submit">Salvar</button></p>
+</form>
+
+<div class="panel">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">Grupos em que o bot posta</h2>
+    <a class="btn" href="{{ url_for('bot', bid=bot.id, listar=1) }}">Listar grupos do bot</a>
+  </div>
+
+  {% if groups is not none %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="name" value="{{ bot.name }}">
+    <input type="hidden" name="groups_form" value="1">
+    <p class="muted">{{ groups | length }} grupo(s) encontrados. Marque onde o bot deve postar.</p>
+    <table>
+      <tr><th></th><th>Grupo</th><th>JID</th></tr>
+      {% for g in groups %}
+      <tr>
+        <td><input type="checkbox" id="g{{ loop.index }}" name="group" value="{{ g.jid }}|{{ g.name }}" {{ 'checked' if g.jid in selected }}></td>
+        <td><label for="g{{ loop.index }}" style="margin:0;font-weight:400">{{ g.name }}</label></td>
+        <td class="muted">{{ g.jid }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p><button class="btn primary" type="submit">Salvar grupos</button></p>
+  </form>
+  {% elif selected %}
+  <table>
+    <tr><th>Grupo</th><th>JID</th></tr>
+    {% for jid, name in selected.items() %}<tr><td>{{ name }}</td><td class="muted">{{ jid }}</td></tr>{% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Nenhum grupo escolhido. Clique em “Listar grupos do bot” para ver os grupos no wuzapi.</p>
+  {% endif %}
+</div>
+{% endblock %}

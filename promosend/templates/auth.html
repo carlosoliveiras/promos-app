@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Primeiro acesso' if setup else 'Entrar' }} · PromoSend{% endblock %}
+{% block layout %}
+<div class="auth">
+  <div class="panel">
+    <h1>{{ 'Criar usuário administrador' if setup else 'Entrar no PromoSend' }}</h1>
+    {% if setup %}<p class="muted">Primeira instalação: crie o usuário que vai acessar o sistema.</p>{% endif %}
+    {% for m in get_flashed_messages() %}<div class="flash">{{ m }}</div>{% endfor %}
+    <form method="post">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label for="username">Usuário</label>
+      <input id="username" name="username" required autofocus autocomplete="username">
+      <label for="password">Senha</label>
+      <input id="password" name="password" type="password" required
+             autocomplete="{{ 'new-password' if setup else 'current-password' }}" {% if setup %}minlength="8"{% endif %}>
+      {% if setup %}
+      <label for="confirm">Confirmar senha</label>
+      <input id="confirm" name="confirm" type="password" required minlength="8" autocomplete="new-password">
+      {% endif %}
+      <p><button class="btn primary" type="submit">{{ 'Criar e entrar' if setup else 'Entrar' }}</button></p>
+    </form>
+  </div>
+</div>
+{% endblock %}
