@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS bot_groups (
     name TEXT,
     PRIMARY KEY (bot_id, jid)
 );
+CREATE TABLE IF NOT EXISTS logs (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    job TEXT NOT NULL,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details TEXT
+);
+CREATE INDEX IF NOT EXISTS logs_created ON logs (created_at);
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     cron TEXT NOT NULL,
@@ -88,6 +97,20 @@ def execute(sql, *args):
 def init():
     with connect() as con:
         con.executescript(SCHEMA)
+
+
+LOG_DAYS = 7
+LOG_LEVELS = ("info", "ok", "aviso", "erro")
+
+
+def log(job, level, message, details=None):
+    with connect() as con:
+        return con.execute("INSERT INTO logs (job, level, message, details) VALUES (?, ?, ?, ?)",
+                           (job, level, message[:2000], details)).lastrowid
+
+
+def prune_logs():
+    return execute(f"DELETE FROM logs WHERE created_at < datetime('now', 'localtime', '-{LOG_DAYS} days')")
 
 
 def get_setting(key, default=""):

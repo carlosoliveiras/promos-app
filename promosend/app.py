@@ -4,11 +4,12 @@ from flask import Flask, abort, flash, redirect, render_template, request, sessi
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, scheduler, whatsapp
-from .flows import FLOW_LABELS, POST_JOB, brl, default_jobs
+from .flows import FLOW_LABELS, POST_JOB, brl, default_jobs, job_label
 from .providers import PROVIDERS
 
 PUBLIC = {"login", "setup", "static"}
 PAGE_SIZE = 24
+LOG_PAGE = 50
 
 
 def create_app():
@@ -24,7 +25,7 @@ def create_app():
             session["csrf"] = secrets.token_hex(16)
         return session["csrf"]
 
-    app.jinja_env.globals.update(csrf_token=csrf_token, PROVIDERS=PROVIDERS, FLOW_LABELS=FLOW_LABELS)
+    app.jinja_env.globals.update(csrf_token=csrf_token, PROVIDERS=PROVIDERS, FLOW_LABELS=FLOW_LABELS, job_label=job_label)
     app.jinja_env.filters["brl"] = lambda v: "" if v is None else brl(v)
 
     @app.before_request
@@ -85,6 +86,17 @@ def create_app():
                         *args, PAGE_SIZE, (page - 1) * PAGE_SIZE)
         return render_template("products.html", items=items, provider=provider, status=status,
                                page=page, pages=max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1), total=total)
+
+    @app.route("/logs")
+    def logs():
+        job, level = request.args.get("job", ""), request.args.get("level", "")
+        page = max(request.args.get("page", 1, type=int), 1)
+        where, args = "WHERE (? = '' OR job = ?) AND (? = '' OR level = ?)", (job, job, level, level)
+        total = db.row(f"SELECT COUNT(*) AS n FROM logs {where}", *args)["n"]
+        items = db.rows(f"SELECT * FROM logs {where} ORDER BY id DESC LIMIT ? OFFSET ?", *args, LOG_PAGE, (page - 1) * LOG_PAGE)
+        jobs = [r["job"] for r in db.rows("SELECT DISTINCT job FROM logs ORDER BY job")]
+        return render_template("logs.html", items=items, job=job, level=level, jobs=jobs, levels=db.LOG_LEVELS,
+                               page=page, pages=max((total + LOG_PAGE - 1) // LOG_PAGE, 1), total=total, days=db.LOG_DAYS)
 
     @app.route("/config")
     def config():

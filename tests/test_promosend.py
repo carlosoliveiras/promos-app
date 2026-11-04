@@ -249,3 +249,37 @@ def test_setup_login_and_pages(app):
     c.post("/logout", data={"csrf": token})
     assert c.get("/").headers["Location"].endswith("/login")
     assert c.get("/setup").headers["Location"].endswith("/login")  # setup só na primeira instalação
+
+
+def test_logs_run_job_and_retention(app, monkeypatch):
+    from promosend import db, scheduler
+    from promosend.providers import shopee
+    db.execute("INSERT INTO terms (provider, term) VALUES ('shopee', 'fone'), ('shopee', 'mouse')")
+    monkeypatch.setattr(shopee, "SEARCH_DELAY", 0)
+
+    def search(term, cfg):
+        if term == "mouse":
+            raise RuntimeError("API fora do ar")
+        return [{"external_id": "1", "name": "Fone", "image": "i", "price": 20, "affiliate_url": "a"}]
+    monkeypatch.setattr(shopee, "search", search)
+
+    scheduler.run_job("shopee.busca", "manual")
+    logs = db.rows("SELECT * FROM logs ORDER BY id")
+    assert [(l["level"], l["message"].split(":")[0]) for l in logs] == [
+        ("info", "Termo 'fone'"), ("erro", "Termo 'mouse'"), ("aviso", "Execução manual em 0.0s")]
+    assert "RuntimeError: API fora do ar" in logs[1]["details"]
+    assert "1 com erro" in logs[2]["message"]
+
+    from promosend import flows
+    monkeypatch.setitem(flows.FLOWS, "busca", lambda pkey: 1 / 0)
+    scheduler.run_job("shopee.busca")
+    last = db.row("SELECT * FROM logs ORDER BY id DESC")
+    assert last["level"] == "erro" and "ZeroDivisionError" in last["details"] and "agendado" in last["message"]
+
+    db.execute("INSERT INTO logs (created_at, job, level, message) VALUES (datetime('now', 'localtime', '-8 days'), 'x', 'info', 'velho')")
+    db.prune_logs()
+    assert not db.rows("SELECT * FROM logs WHERE message = 'velho'") and db.rows("SELECT * FROM logs")
+
+    c, _ = login(app)
+    page = c.get("/logs?level=erro").get_data(as_text=True)
+    assert "Shopee · Busca de produtos" in page and "API fora do ar" in page and "Termo &#39;fone&#39;" not in page

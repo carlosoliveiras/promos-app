@@ -56,6 +56,10 @@ td, th { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; v
 .side a, .side button { overflow: hidden; white-space: nowrap; }
 .card .name, td { overflow-wrap: anywhere; }
 
+.tag.log-ok { color: var(--ok); } .tag.log-erro { color: var(--err); } .tag.log-aviso { color: #b45309; } .tag.log-info { color: var(--muted); }
+.log-details { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; max-height: 320px; overflow: auto; margin: 6px 0 0; }
+summary { cursor: pointer; }
+
 /* tablet: menu lateral só com ícones */
 @media (max-width: 1024px) {
   .side { width: 64px; padding: 16px 8px; }

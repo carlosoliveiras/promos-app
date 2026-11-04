@@ -2,14 +2,22 @@
 import logging
 import random
 import time
+import traceback
 
 from . import db, whatsapp
 from .providers import PROVIDERS
 
 log = logging.getLogger(__name__)
 
+POST_JOB = "whatsapp.postagem"
 FLOW_LABELS = {"busca": "Busca de produtos", "links": "Gerar links de afiliado", "limpeza": "Limpar produtos",
                "postagem": "Postar produtos nos grupos"}
+
+
+def _error(job, message):
+    """Registra o erro com o traceback; chame dentro de um except."""
+    log.exception("%s: %s", job, message)
+    db.log(job, "erro", message, traceback.format_exc())
 
 
 def config(pkey):
@@ -21,32 +29,42 @@ def busca(pkey):
     terms = db.rows("SELECT term, grupo FROM terms WHERE provider = ? AND active = 1", pkey)
     if not terms:
         return "nenhum termo ativo"
-    total, errors = 0, []
+    job, total, failed = f"{pkey}.busca", 0, 0
     for i, t in enumerate(terms):
         if i:
             time.sleep(prov.SEARCH_DELAY)
         try:
             items = prov.search(t["term"], cfg)
         except Exception as e:
-            log.exception("busca %s falhou em %r", pkey, t["term"])
-            errors.append(f"{t['term']}: {e}")
+            _error(job, f"Termo {t['term']!r}: {e}")
+            failed += 1
             continue
         db.upsert_products(pkey, t["grupo"], items)
+        db.log(job, "info", f"Termo {t['term']!r}: {len(items)} produtos")
         total += len(items)
-    return f"{total} produtos de {len(terms)} termos" + (f"; erros: {' | '.join(errors)}" if errors else "")
+    return f"{total} produtos de {len(terms)} termos" + (f", {failed} com erro" if failed else "")
 
 
 def links(pkey):
     prov, cfg = PROVIDERS[pkey], config(pkey)
     pending = [r["url"] for r in db.rows(
         "SELECT url FROM products WHERE provider = ? AND COALESCE(affiliate_url, '') = '' AND url IS NOT NULL", pkey)]
-    done = 0
+    job, done = f"{pkey}.links", 0
     for i in range(0, len(pending), prov.LINK_BATCH):
         if i:
             time.sleep(prov.LINK_DELAY)
-        for original, short in prov.generate_links(pending[i:i + prov.LINK_BATCH], cfg).items():
-            done += db.execute("UPDATE products SET affiliate_url = ?, status = 'PRONTO' "
-                               "WHERE provider = ? AND url = ?", short, pkey, original)
+        batch = pending[i:i + prov.LINK_BATCH]
+        updated = 0
+        for original, short in prov.generate_links(batch, cfg).items():
+            updated += db.execute("UPDATE products SET affiliate_url = ?, status = 'PRONTO' "
+                                  "WHERE provider = ? AND url = ?", short, pkey, original)
+        done += updated
+        if updated < len(batch):
+            db.log(job, "aviso", f"Lote {i // prov.LINK_BATCH + 1}: {updated} de {len(batch)} links gerados",
+                   "Sem link:\n" + "\n".join(u for u in batch if not db.row(
+                       "SELECT 1 FROM products WHERE provider = ? AND url = ? AND COALESCE(affiliate_url, '') != ''", pkey, u)))
+        else:
+            db.log(job, "info", f"Lote {i // prov.LINK_BATCH + 1}: {updated} links gerados")
     return f"{done} de {len(pending)} links gerados"
 
 
@@ -70,17 +88,18 @@ def caption(p):
 def postagem(_=None, sleep=time.sleep):
     url = db.get_setting("whatsapp.url")
     count = int(db.get_setting("whatsapp.post_count", "1") or 1)
-    targets = db.rows("SELECT b.token, g.jid, g.name FROM bots b JOIN bot_groups g ON g.bot_id = b.id WHERE b.posts = 1")
+    targets = db.rows("SELECT b.token, b.name AS bot, g.jid, g.name FROM bots b JOIN bot_groups g ON g.bot_id = b.id WHERE b.posts = 1")
     if not url or not targets:
         return "configure a URL do wuzapi e ao menos um bot com grupos"
     products = db.rows("SELECT * FROM products WHERE status = 'PRONTO' AND COALESCE(affiliate_url, '') != '' "
                        "ORDER BY RANDOM() LIMIT ?", count)
-    sent, errors, first = 0, [], True
+    sent, errors, first = 0, 0, True
     for p in products:
         try:
             image = whatsapp.image_data_url(p["image"])
         except Exception as e:
-            errors.append(f"imagem de {p['external_id']}: {e}")
+            _error(POST_JOB, f"Imagem de {p['name']!r}: {e}")
+            errors += 1
             continue
         ok = False
         for t in targets:
@@ -90,22 +109,30 @@ def postagem(_=None, sleep=time.sleep):
             try:
                 whatsapp.send_image(url, t["token"], t["jid"], image, caption(p))
                 ok, sent = True, sent + 1
+                db.log(POST_JOB, "info", f"Postado {p['name']!r} em {t['name']} (bot {t['bot']})")
             except Exception as e:
-                log.exception("falha ao postar em %s", t["jid"])
-                errors.append(f"{t['name']}: {e}")
+                _error(POST_JOB, f"Grupo {t['name']} (bot {t['bot']}): {e}")
+                errors += 1
         if ok:
             db.execute("UPDATE products SET status = 'ENVIADO' WHERE id = ?", p["id"])
-    return f"{len(products)} produtos, {sent} postagens" + (f"; erros: {' | '.join(errors)}" if errors else "")
+    if not products:
+        return "nenhum produto PRONTO para postar"
+    return f"{len(products)} produtos, {sent} postagens" + (f", {errors} com erro" if errors else "")
 
 
 FLOWS = {"busca": busca, "links": links, "limpeza": limpeza}
-POST_JOB = "whatsapp.postagem"
 
 
 def default_jobs():
     jobs = {f"{p}.{f}": cron for p, prov in PROVIDERS.items() for f, cron in prov.DEFAULT_CRONS.items()}
     jobs[POST_JOB] = "*/10 10-22 * * *"
     return jobs
+
+
+def job_label(job_id):
+    pkey, _, flow = job_id.partition(".")
+    name = PROVIDERS[pkey].NAME if pkey in PROVIDERS else {"whatsapp": "WhatsApp", "sistema": "Sistema"}.get(pkey, pkey)
+    return f"{name} · {FLOW_LABELS[flow]}" if flow in FLOW_LABELS else name
 
 
 def run(job_id):

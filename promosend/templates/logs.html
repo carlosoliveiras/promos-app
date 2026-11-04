@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Logs · PromoSend{% endblock %}
+{% block content %}
+<h1>Logs <span class="muted">({{ total }})</span></h1>
+<p class="muted">Cada execução dos fluxos e cada erro ficam salvos por {{ days }} dias.</p>
+<form class="filters" method="get">
+  <select name="job" onchange="this.form.submit()" aria-label="Fluxo">
+    <option value="">Todos os fluxos</option>
+    {% for j in jobs %}<option value="{{ j }}" {{ 'selected' if job == j }}>{{ job_label(j) }}</option>{% endfor %}
+  </select>
+  <select name="level" onchange="this.form.submit()" aria-label="Nível">
+    <option value="">Todos os níveis</option>
+    {% for l in levels %}<option value="{{ l }}" {{ 'selected' if level == l }}>{{ l }}</option>{% endfor %}
+  </select>
+</form>
+
+{% if items %}
+<div class="panel">
+<table class="stack">
+  <tr><th>Quando</th><th>Fluxo</th><th>Nível</th><th>Mensagem</th></tr>
+  {% for l in items %}
+  <tr>
+    <td data-label="Quando" class="muted" style="white-space:nowrap">{{ l.created_at }}</td>
+    <td data-label="Fluxo">{{ job_label(l.job) }}</td>
+    <td data-label="Nível"><span class="tag log-{{ l.level }}">{{ l.level }}</span></td>
+    <td data-label="Mensagem">
+      {{ l.message }}
+      {% if l.details %}<details><summary class="muted">detalhes</summary><pre class="log-details">{{ l.details }}</pre></details>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% if pages > 1 %}
+<nav class="pager" aria-label="Paginação">
+  {% if page > 1 %}<a class="btn" href="{{ url_for('logs', job=job, level=level, page=page - 1) }}">Anterior</a>{% endif %}
+  <span class="muted">Página {{ page }} de {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="{{ url_for('logs', job=job, level=level, page=page + 1) }}">Próxima</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="panel">Nenhum log{{ ' com esses filtros' if job or level }}. Rode um fluxo em <a href="{{ url_for('jobs') }}">Agendamentos</a>.</div>
+{% endif %}
+{% endblock %}

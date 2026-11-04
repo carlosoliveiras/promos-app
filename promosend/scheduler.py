@@ -1,4 +1,6 @@
 import logging
+import time
+import traceback
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -14,14 +16,22 @@ def seed_jobs():
         db.execute("INSERT OR IGNORE INTO jobs (id, cron) VALUES (?, ?)", job_id, cron)
 
 
-def run_job(job_id):
+def run_job(job_id, origem="agendado"):
+    start_id = db.row("SELECT COALESCE(MAX(id), 0) AS m FROM logs")["m"]
+    started = time.monotonic()
+    details = None
     try:
-        status = "ok: " + flows.run(job_id)
+        result = flows.run(job_id)
+        failures = db.row("SELECT COUNT(*) AS n FROM logs WHERE id > ? AND job = ? AND level = 'erro'",
+                          start_id, job_id)["n"]
+        level, status = ("aviso" if failures else "ok"), "ok: " + result
     except Exception as e:
         log.exception("job %s falhou", job_id)
-        status = f"erro: {e}"
+        level, status, details = "erro", f"erro: {e}", traceback.format_exc()
     db.execute("UPDATE jobs SET last_run = datetime('now', 'localtime'), last_status = ? WHERE id = ?",
                status[:2000], job_id)
+    db.log(job_id, level, f"Execução {origem} em {time.monotonic() - started:.1f}s: {status.split(': ', 1)[1]}", details)
+    db.prune_logs()
 
 
 def trigger(cron):
@@ -38,7 +48,7 @@ def sync(job_id):
 
 
 def run_now(job_id):
-    scheduler.add_job(run_job, args=[job_id], id=f"{job_id}.manual", replace_existing=True)
+    scheduler.add_job(run_job, args=[job_id, "manual"], id=f"{job_id}.manual", replace_existing=True)
 
 
 def start():
@@ -49,3 +59,4 @@ def start():
             sync(job["id"])
         except ValueError:
             log.error("cron inválido em %s, job não agendado", job["id"])
+            db.log(job["id"], "erro", "Cron inválido: o fluxo não foi agendado")
