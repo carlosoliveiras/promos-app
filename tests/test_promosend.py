@@ -66,7 +66,11 @@ def test_ml_search_detects_captcha(monkeypatch):
         url = "https://www.mercadolivre.com.br/captcha/wall/logged?go_url=x"
         def raise_for_status(self): pass
 
-    monkeypatch.setattr(mercadolivre.requests, "get", lambda *a, **k: Resp())
+    class FakeSession:
+        headers, cookies = {}, mercadolivre.requests.cookies.RequestsCookieJar()
+        def get(self, url, timeout): return Resp()
+
+    monkeypatch.setattr(mercadolivre.requests, "Session", FakeSession)
     with pytest.raises(RuntimeError, match="anti-robô"):
         mercadolivre.search("https://lista.mercadolivre.com.br/celular", {"cookies": "a=1"})
     Resp.url, Resp.text = "https://lista.mercadolivre.com.br/celular", POLYCARD
@@ -121,7 +125,7 @@ def test_links_flow(app, monkeypatch):
     from promosend import db, flows
     from promosend.providers import mercadolivre
     db.upsert_products("mercadolivre", "", [{"external_id": "MLB1", "name": "a", "image": "i", "url": "u1", "price": 1}])
-    monkeypatch.setattr(mercadolivre, "generate_links", lambda urls, cfg: {u: "short-" + u for u in urls})
+    monkeypatch.setattr(mercadolivre, "generate_links", lambda urls, cfg: ((u, "short-" + u, None) for u in urls))
     assert flows.links("mercadolivre") == "1 de 1 links gerados"
     assert db.row("SELECT status, affiliate_url FROM products")["affiliate_url"] == "short-u1"
 
@@ -336,6 +340,10 @@ def test_ml_api_oauth_flow_and_refresh(app, monkeypatch):
     q = parse_qs(urlparse(r.headers["Location"]).query)
     assert r.headers["Location"].startswith(ml_api.AUTH_URL) and q["client_id"] == ["CID"]
     assert q["code_challenge_method"] == ["S256"] and q["redirect_uri"][0].endswith("/config/provedores/mercadolivre/api/retorno")
+    r = c.post("/config/provedores/mercadolivre/api/autorizar", data={"csrf": token},
+               headers={"X-Forwarded-Host": "promo.ngrok-free.dev"})  # como chega pelo ngrok: http, sem proto
+    assert parse_qs(urlparse(r.headers["Location"]).query)["redirect_uri"] == [
+        "https://promo.ngrok-free.dev/config/provedores/mercadolivre/api/retorno"]  # fora do localhost, sempre https
 
     posts = []
 
@@ -368,3 +376,64 @@ def test_ml_api_oauth_flow_and_refresh(app, monkeypatch):
     assert ml_api.code_from("https://example.com/retorno?code=TG-abc&state=x") == "TG-abc"
     c.post("/config/provedores/mercadolivre/api/desconectar", data={"csrf": token})
     assert not ml_api.status()["authorized"]
+
+
+def test_ml_cookie_header_from_curl():
+    from promosend.providers.mercadolivre import cookie_header
+    curl = "curl 'https://www.mercadolivre.com.br/afiliados' \\\n  -H 'accept: */*' \\\n  -H 'cookie: ssid=abc; orguseridp=1' \\\n  -H 'x: y'"
+    assert cookie_header(curl) == "ssid=abc; orguseridp=1"
+    assert cookie_header("curl 'https://x' -b 'ssid=1; cp=2'") == "ssid=1; cp=2"
+
+
+def test_ml_generate_links_session_csrf_and_cookie_refresh(app, monkeypatch):
+    from promosend import db
+    from promosend.providers import mercadolivre as ml
+
+    class Resp:
+        def __init__(self, status=200, body=None, text="", url=""):
+            self.status_code, self.body, self.text, self.url = status, body, text, url
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise ml.requests.HTTPError(str(self.status_code))
+        def json(self): return self.body
+
+    class FakeSession:
+        def __init__(self):
+            self.headers, self.cookies, self.csrf_calls, self.posts = {}, ml.requests.cookies.RequestsCookieJar(), 0, []
+        def get(self, url, timeout):
+            self.csrf_calls += 1
+            self.cookies.set("ssid", f"novo{self.csrf_calls}", domain=".mercadolivre.com.br")  # Set-Cookie do ML
+            return Resp(text=f'<meta name="csrf-token" content="CSRF{self.csrf_calls}">', url=url)
+        def post(self, url, timeout, json, headers):
+            self.posts.append((json["urls"][0], headers["x-csrf-token"]))
+            if json["urls"][0] == "u2" and headers["x-csrf-token"] == "CSRF1":
+                return Resp(401)  # csrf vencido: deve renovar e tentar de novo
+            if json["urls"][0] == "u3":
+                return Resp(200, {"urls": [{"origin_url": "u3"}]}, text="sem short")
+            return Resp(200, {"urls": [{"origin_url": json["urls"][0], "short_url": "s-" + json["urls"][0]}]})
+
+    fake = FakeSession()
+    monkeypatch.setattr(ml.requests, "Session", lambda: fake)
+    sleeps = []
+    cfg = {"cookies": "ssid=velho; orguseridp=9", "tag": "minhatag"}
+    out = list(ml.generate_links(["u1", "u2", "u3"], cfg, sleep=sleeps.append))
+    assert [(u, s) for u, s, _ in out] == [("u1", "s-u1"), ("u2", "s-u2"), ("u3", None)]
+    assert "sem link" in out[2][2]
+    assert fake.posts == [("u1", "CSRF1"), ("u2", "CSRF1"), ("u2", "CSRF2"), ("u3", "CSRF2")]
+    assert len(sleeps) == 2 and all(5 <= x <= 14 for x in sleeps)
+    saved = db.get_setting("mercadolivre.cookies")
+    assert "ssid=novo2" in saved and "orguseridp=9" in saved  # cookies renovados pelo ML são guardados
+
+    # 5 erros de autenticação seguidos param o fluxo com mensagem clara
+    fake2 = FakeSession()
+    fake2.post = lambda url, timeout, json, headers: Resp(403)
+    monkeypatch.setattr(ml.requests, "Session", lambda: fake2)
+    with pytest.raises(RuntimeError, match="sessão do Mercado Livre caiu"):
+        list(ml.generate_links([f"u{i}" for i in range(10)], cfg, sleep=lambda s: None))
+
+    # página de afiliados caindo no captcha vira erro explicado
+    fake3 = FakeSession()
+    fake3.get = lambda url, timeout: Resp(url="https://www.mercadolivre.com.br/captcha/wall/logged?x=1")
+    monkeypatch.setattr(ml.requests, "Session", lambda: fake3)
+    with pytest.raises(RuntimeError, match="anti-robô"):
+        list(ml.generate_links(["u1"], cfg))

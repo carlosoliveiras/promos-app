@@ -127,9 +127,13 @@ def create_app():
             return redirect(url_for("provider", pkey=pkey))
         cfg = db.provider_config(pkey, prov.FIELDS)
         terms = db.rows("SELECT * FROM terms WHERE provider = ? ORDER BY id", pkey)
-        extra = {"api": ml_api.status(), "callback": url_for("ml_api_callback", _external=True)} \
-            if pkey == "mercadolivre" else {}
+        extra = {"api": ml_api.status(), "callback": ml_callback_url()} if pkey == "mercadolivre" else {}
         return render_template("provider.html", pkey=pkey, prov=prov, cfg=cfg, terms=terms, **extra)
+
+    def ml_callback_url():
+        # o ML só aceita https; atrás do ngrok o pedido chega como http e sem X-Forwarded-Proto
+        local = request.host.split(":")[0] in ("localhost", "127.0.0.1", "[::1]")
+        return url_for("ml_api_callback", _external=True, _scheme="http" if local else "https")
 
     def ml_cfg():
         return db.provider_config("mercadolivre", PROVIDERS["mercadolivre"].FIELDS)
@@ -149,7 +153,7 @@ def create_app():
             flash("Salve o Client ID e o Client Secret do app antes de autorizar.")
             return redirect(url_for("provider", pkey="mercadolivre"))
         session["ml_oauth_state"] = state = secrets.token_urlsafe(16)
-        return redirect(ml_api.auth_link(cfg, cfg["redirect_uri"] or url_for("ml_api_callback", _external=True), state))
+        return redirect(ml_api.auth_link(cfg, cfg["redirect_uri"] or ml_callback_url(), state))
 
     @app.route("/config/provedores/mercadolivre/api/retorno")
     def ml_api_callback():

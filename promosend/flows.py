@@ -53,22 +53,15 @@ def links(pkey):
     prov, cfg = PROVIDERS[pkey], config(pkey)
     pending = [r["url"] for r in db.rows(
         "SELECT url FROM products WHERE provider = ? AND COALESCE(affiliate_url, '') = '' AND url IS NOT NULL", pkey)]
-    job, done = f"{pkey}.links", 0
-    for i in range(0, len(pending), prov.LINK_BATCH):
-        if i:
-            time.sleep(prov.LINK_DELAY)
-        batch = pending[i:i + prov.LINK_BATCH]
-        updated = 0
-        for original, short in prov.generate_links(batch, cfg).items():
-            updated += db.execute("UPDATE products SET affiliate_url = ?, status = 'PRONTO' "
-                                  "WHERE provider = ? AND url = ?", short, pkey, original)
-        done += updated
-        if updated < len(batch):
-            db.log(job, "aviso", f"Lote {i // prov.LINK_BATCH + 1}: {updated} de {len(batch)} links gerados",
-                   "Sem link:\n" + "\n".join(u for u in batch if not db.row(
-                       "SELECT 1 FROM products WHERE provider = ? AND url = ? AND COALESCE(affiliate_url, '') != ''", pkey, u)))
+    job, done, failed = f"{pkey}.links", 0, []
+    for original, short, error in prov.generate_links(pending, cfg):
+        if short:  # grava na hora: se o fluxo cair no meio, o que já saiu fica salvo
+            done += db.execute("UPDATE products SET affiliate_url = ?, status = 'PRONTO' "
+                               "WHERE provider = ? AND url = ?", short, pkey, original)
         else:
-            db.log(job, "info", f"Lote {i // prov.LINK_BATCH + 1}: {updated} links gerados")
+            failed.append(f"{original}: {error}")
+    if failed:
+        db.log(job, "aviso", f"{len(failed)} de {len(pending)} produtos ficaram sem link", "\n".join(failed))
     return f"{done} de {len(pending)} links gerados"
 
 

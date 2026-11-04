@@ -6,7 +6,7 @@ Cada provedor é um módulo com:
     DEFAULT_CRONS   cron padrão de cada fluxo que o provedor suporta (busca, links, limpeza)
     SEARCH_DELAY    segundos de espera entre um termo e outro na busca
     search(term, cfg) -> list[dict]        produtos já filtrados
-    generate_links(urls, cfg) -> dict      opcional: url original -> link de afiliado
+    generate_links(urls, cfg) -> iter      opcional: (url, link_afiliado | None, erro | None) por URL
 
 Para adicionar um provedor, crie o módulo e registre em PROVIDERS.
 """
