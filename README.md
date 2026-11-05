@@ -1,6 +1,6 @@
 # PromoSend
 
-Busca produtos de afiliados (Mercado Livre e Shopee), gera links de afiliado e guarda tudo num SQLite local.
+Busca produtos de afiliados (Mercado Livre, Shopee e Amazon), gera links de afiliado e guarda tudo num SQLite local.
 Feito para cada pessoa hospedar na própria máquina.
 
 ## Instalação
@@ -31,9 +31,12 @@ Rode só **um** processo: o agendador dos fluxos roda dentro dele.
    - **Mercado Livre**: cookies da conta de afiliado, `x-csrf-token` (copie do DevTools na página
      *linkbuilder*) e sua tag de afiliado. Em *URLs de categoria*, cole as URLs de listagem, uma por linha.
      Os termos podem ter um *grupo*, que fica salvo junto dos produtos.
+   - **Amazon**: sua tag de associado e, opcionalmente, os cookies da conta de associado. Em *URLs de mais
+     vendidos*, cole as listas (`/gp/bestsellers/...`), uma por linha. Com cookies, o link sai curto (amzn.to)
+     pela SiteStripe; sem cookies, ou se a SiteStripe falhar, sai o link longo com `?tag=`.
 2. **Agendamentos**: cada fluxo de cada provedor tem seu próprio cron e começa **desativado**.
    - `busca`: pesquisa os termos ativos e grava os produtos.
-   - `links` (só Mercado Livre): gera os links de afiliado dos produtos pendentes, de 20 em 20.
+   - `links` (Mercado Livre e Amazon): gera os links de afiliado dos produtos pendentes, de 20 em 20.
    - `limpeza`: apaga os produtos do provedor.
    Use *Executar agora* para testar um fluxo.
 3. **WhatsApp** (via [wuzapi](https://github.com/asternic/wuzapi)): informe a URL do wuzapi e cadastre os bots

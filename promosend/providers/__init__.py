@@ -19,6 +19,6 @@ def require(cfg, *keys):
         raise RuntimeError("configuração faltando: " + ", ".join(missing))
 
 
-from . import mercadolivre, shopee  # noqa: E402  (módulos importam require acima)
+from . import amazon, mercadolivre, shopee  # noqa: E402  (módulos importam require acima)
 
-PROVIDERS = {"mercadolivre": mercadolivre, "shopee": shopee}
+PROVIDERS = {"mercadolivre": mercadolivre, "shopee": shopee, "amazon": amazon}

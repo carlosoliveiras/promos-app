@@ -248,7 +248,8 @@ def test_setup_login_and_pages(app):
     assert c.post("/setup", data={"username": "adm", "password": "x", "confirm": "x", "csrf": token}).status_code == 200
     r = c.post("/setup", data={"username": "adm", "password": "12345678", "confirm": "12345678", "csrf": token})
     assert r.status_code == 302
-    for path in ["/", "/config/provedores", "/config/provedores/shopee", "/config/provedores/mercadolivre", "/config/agendamentos"]:
+    for path in ["/", "/config/provedores", "/config/provedores/shopee", "/config/provedores/mercadolivre",
+                 "/config/provedores/amazon", "/config/agendamentos"]:
         assert c.get(path).status_code == 200, path
 
     token = csrf(c, "/config/provedores/shopee")
@@ -511,3 +512,93 @@ def test_delete_product_keeps_filters(app):
     r = c.post(f"/produtos/{pid}/excluir", data={"csrf": token, "provider": "shopee", "status": "", "page": "2"})
     assert r.headers["Location"].endswith("/?provider=shopee&page=2")
     assert not db.row("SELECT 1 FROM products")
+
+
+AMAZON_PAGE = """
+<div id="gridItemRoot" class="a"><div data-asin="B0FGDMDW1J" class="x">
+<a href="/Monitor/dp/B0FGDMDW1J/ref=zg_1?psc=1"><img alt="Monitor &quot;27&quot; AOC" src="https://m.media-amazon.com/images/I/71NBd8ByskL._AC_UL300_SR300,200_.jpg" class="p13n-product-image"/></a>
+<span class="_cDEzb_p13n-sc-price_3mJ9Z">R$ 1.894,73</span></div></div>
+<div id="gridItemRoot" class="a"><div data-asin="B000YKMHP2" class="x">
+<img alt="Sem preço" src="https://m.media-amazon.com/images/I/1.jpg"/></div></div>
+<div id="gridItemRoot" class="a"><div data-asin="B07QKN5NF1" class="x">
+<img src="https://m.media-amazon.com/images/I/2._AC_UL300_.jpg" alt="Liquidificador"/>
+<span class="_cDEzb_p13n-sc-price_3mJ9Z">R$ 99,00 - R$ 120,00</span></div></div>
+"""
+
+
+def test_amazon_parse_bestsellers():
+    from promosend.providers import amazon
+    items = amazon.parse(AMAZON_PAGE)
+    assert items == [
+        {"external_id": "B0FGDMDW1J", "name": 'Monitor "27" AOC', "price": 1894.73,
+         "url": "https://www.amazon.com.br/dp/B0FGDMDW1J",
+         "image": "https://m.media-amazon.com/images/I/71NBd8ByskL.jpg"},
+        {"external_id": "B07QKN5NF1", "name": "Liquidificador", "price": 99.0,
+         "url": "https://www.amazon.com.br/dp/B07QKN5NF1", "image": "https://m.media-amazon.com/images/I/2.jpg"},
+    ]
+
+
+def test_amazon_search_detects_captcha(monkeypatch):
+    from promosend.providers import amazon
+
+    class Resp:
+        text = '<form action="/errors/validateCaptcha">'
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(amazon.requests, "get", lambda *a, **k: Resp())
+    with pytest.raises(RuntimeError, match="captcha"):
+        amazon.search("https://www.amazon.com.br/gp/bestsellers", {})
+
+
+def test_amazon_links_short_with_long_fallback(app, monkeypatch):
+    from promosend import db
+    from promosend.providers import amazon
+
+    # sem cookies: link longo com a tag, sem chamar a SiteStripe
+    monkeypatch.setattr(amazon.requests, "Session", lambda: pytest.fail("não devia abrir sessão"))
+    out = list(amazon.generate_links(["https://www.amazon.com.br/dp/A1?x=1"], {"tag": "loja-20", "cookies": ""}))
+    assert out == [("https://www.amazon.com.br/dp/A1?x=1", "https://www.amazon.com.br/dp/A1?tag=loja-20", None)]
+
+    class Resp:
+        def __init__(self, status=200, body=None, text=""):
+            self.status_code, self.body, self.text = status, body, text
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise amazon.requests.HTTPError(str(self.status_code))
+        def json(self):
+            if self.body is None:
+                raise ValueError("não é JSON")
+            return self.body
+
+    class FakeSession:
+        def __init__(self, fail=lambda url: False):
+            self.headers, self.cookies, self.calls, self.fail = {}, amazon.requests.cookies.RequestsCookieJar(), [], fail
+        def get(self, url, timeout, allow_redirects, params, headers):
+            assert url == amazon.SHORT_API and params["marketplaceId"] == "526970"
+            self.calls.append(params["longUrl"])
+            self.cookies.set("session-token", f"novo{len(self.calls)}", domain=".amazon.com.br")
+            if self.fail(params["longUrl"]):
+                return Resp(200, None, "<html>login</html>")
+            return Resp(200, {"ok": True, "shortUrl": "https://amzn.to/x" + str(len(self.calls))})
+
+    fake = FakeSession(fail=lambda u: "/A2" in u)
+    monkeypatch.setattr(amazon.requests, "Session", lambda: fake)
+    cfg = {"tag": "loja-20", "cookies": "at-acbbr=Atza|x; session-token=velho"}
+    sleeps = []
+    urls = [f"https://www.amazon.com.br/dp/A{i}" for i in (1, 2, 3)]
+    out = list(amazon.generate_links(urls, cfg, sleep=sleeps.append))
+    assert fake.calls == [u + "?tag=loja-20" for u in urls]
+    assert out[0][1].startswith("https://amzn.to/") and out[2][1].startswith("https://amzn.to/")
+    assert out[1][1] == "https://www.amazon.com.br/dp/A2?tag=loja-20"  # SiteStripe falhou: link longo
+    assert len(sleeps) == 2 and all(2 <= x <= 6 for x in sleeps)
+    assert "session-token=novo3" in db.get_setting("amazon.cookies")  # sessão renovada é guardada
+    aviso = db.rows("SELECT message, details FROM logs WHERE job = 'amazon.links'")
+    assert "1 links saíram longos" in aviso[0]["message"] and "/A2" in aviso[0]["details"]
+
+    # sessão caída: depois de MAX_FAILS falhas seguidas para de chamar a SiteStripe
+    fake2 = FakeSession(fail=lambda u: True)
+    monkeypatch.setattr(amazon.requests, "Session", lambda: fake2)
+    urls = [f"https://www.amazon.com.br/dp/B{i}" for i in range(6)]
+    out = list(amazon.generate_links(urls, cfg, sleep=lambda s: None))
+    assert len(fake2.calls) == amazon.MAX_FAILS
+    assert [l for _, l, _ in out] == [u + "?tag=loja-20" for u in urls]
