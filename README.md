@@ -44,8 +44,12 @@ Rode só **um** processo: o agendador dos fluxos roda dentro dele.
    grupos do bot e marque em quais ele posta.
    - **Fluxo de postagem**: escolha os bots que postam, quantos produtos postar por execução e o cron.
      A cada execução o sistema sorteia produtos `PRONTO`, posta imagem + texto em todos os grupos dos bots
-     marcados, com intervalo aleatório de 1 a 5 s entre postagens, e marca o produto como `ENVIADO`.
-4. **Produtos**: a tela inicial mostra os produtos em cards, com filtro e paginação.
+     marcados (e nos chats do Telegram), com intervalo aleatório de 1 a 5 s entre postagens, e marca o produto
+     como `ENVIADO`.
+4. **Telegram**: crie um bot no [@BotFather](https://t.me/BotFather), adicione-o como administrador nos grupos e
+   canais e salve o token. Em *Chats*, coloque um por linha: `@canal` público ou o ID numérico. Para achar o ID,
+   mande uma mensagem no grupo e use *Ver chats recentes do bot*. A postagem usa o mesmo fluxo do WhatsApp.
+5. **Produtos**: a tela inicial mostra os produtos em cards, com filtro e paginação.
 
 Status dos produtos: `PENDENTE` (sem link de afiliado), `PRONTO` (com link) e `ENVIADO`.
 

@@ -4,7 +4,7 @@ from flask import Flask, abort, flash, redirect, render_template, request, sessi
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import db, scheduler, whatsapp
+from . import db, scheduler, telegram, whatsapp
 from .flows import FLOW_LABELS, POST_JOB, brl, default_jobs, job_label
 from .providers import PROVIDERS, ml_api
 
@@ -306,6 +306,23 @@ def create_app():
                 db.execute("UPDATE bots SET posts = ? WHERE id = ?", int(b["id"] in chosen), b["id"])
             flash("Fluxo de postagem salvo.")
         return redirect(url_for("whatsapp_config"))
+
+    @app.route("/config/telegram", methods=["GET", "POST"])
+    def telegram_config():
+        if request.method == "POST":
+            if request.form.get("token", "").strip():  # em branco mantém o token salvo
+                db.set_setting("telegram.token", request.form["token"].strip())
+            db.set_setting("telegram.chats", "\n".join(request.form.get("chats", "").split()))
+            flash("Configuração do Telegram salva.")
+            return redirect(url_for("telegram_config"))
+        token, chats = db.get_setting("telegram.token"), None
+        if request.args.get("listar"):
+            try:
+                chats = telegram.recent_chats(token)
+            except Exception as e:
+                flash(f"Não foi possível listar os chats: {e}")
+        return render_template("telegram.html", has_token=bool(token), chats=chats,
+                               saved=db.get_setting("telegram.chats"))
 
     @app.post("/config/whatsapp/bots")
     def add_bot():

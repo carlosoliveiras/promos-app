@@ -54,8 +54,8 @@
 
 <div class="panel">
   <h2 style="margin-top:0">Fluxo de postagem</h2>
-  <p class="muted">Em cada execução, sorteia produtos com status PRONTO e posta em todos os grupos dos bots marcados,
-    com intervalo aleatório de 1 a 5 segundos entre cada postagem. Produto postado vira ENVIADO.</p>
+  <p class="muted">Em cada execução, sorteia produtos com status PRONTO e posta em todos os grupos dos bots marcados
+    e nos <a href="{{ url_for('telegram_config') }}">chats do Telegram</a>, com intervalo aleatório de 1 a 5 segundos entre cada postagem. Produto postado vira ENVIADO.</p>
   <form method="post" action="{{ url_for('save_posting') }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label>Bots que postam</label>
