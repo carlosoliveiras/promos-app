@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Telegram · PromoSend{% endblock %}
+{% block content %}
+<h1>Telegram</h1>
+
+<div class="panel">
+  <h2 style="margin-top:0">Bot</h2>
+  <p class="muted">Crie o bot no <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> e adicione-o
+    como administrador nos grupos e canais em que ele vai postar.</p>
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label for="token">Token do bot</label>
+    <input id="token" name="token" type="password" autocomplete="off" {{ '' if has_token else 'required' }}
+           placeholder="{{ '•••••• salvo — deixe em branco para manter' if has_token else '123456:ABC...' }}">
+    <label for="chats">Chats em que o bot posta</label>
+    <textarea id="chats" name="chats" rows="5" placeholder="@meucanal&#10;-1001234567890">{{ saved }}</textarea>
+    <div class="muted">Um por linha: <code>@usuario</code> de canal público ou o ID numérico do grupo/canal.
+      Deixe vazio para não postar no Telegram.</div>
+    <p><button class="btn primary" type="submit">Salvar</button></p>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">Descobrir o ID de um chat</h2>
+    <a class="btn" href="{{ url_for('telegram_config', listar=1) }}">Ver chats recentes do bot</a>
+  </div>
+  <p class="muted">Mande uma mensagem no grupo (ou poste no canal) com o bot já adicionado e clique no botão.
+    O Telegram só guarda as mensagens das últimas 24 horas.</p>
+  {% if chats is not none %}
+  {% if chats %}
+  <table>
+    <tr><th>Chat</th><th>ID</th></tr>
+    {% for c in chats %}<tr><td>{{ c.name }}</td><td><code>{{ c.id }}</code></td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">Nenhum grupo ou canal recente.</p>{% endif %}
+  {% endif %}
+</div>
+
+<p class="muted">Quantos produtos postar e quando ficam no <a href="{{ url_for('whatsapp_config') }}">fluxo de postagem</a>,
+  o mesmo do WhatsApp: cada produto sorteado vai para os grupos do WhatsApp e para os chats do Telegram.</p>
+{% endblock %}

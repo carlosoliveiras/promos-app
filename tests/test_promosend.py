@@ -241,6 +241,61 @@ def test_postagem(app, monkeypatch):
     assert db.row("SELECT COUNT(*) AS n FROM products WHERE status = 'ENVIADO'")["n"] == 2
 
 
+def test_postagem_telegram(app, monkeypatch):
+    from promosend import db, flows, telegram
+    db.set_setting("telegram.token", "123:ABC")
+    db.set_setting("telegram.chats", "@canal\n-100999")
+    db.upsert_products("amazon", "", [{"external_id": "1", "name": "Fone <XL> & cia", "image": "https://img/1.jpg",
+                                       "price": 99.9, "price_original": 150.0, "discount": "33% OFF",
+                                       "affiliate_url": "https://amzn.to/x?a=1&b=2"}])
+    calls = []
+
+    def post(url, json, timeout):
+        calls.append((url, json))
+        ok = json["chat_id"] == "@canal"
+
+        class Resp:
+            status_code = 200 if ok else 400
+            def json(self): return {"ok": True, "result": {}} if ok else {"ok": False, "description": "chat not found"}
+        return Resp()
+
+    monkeypatch.setattr(telegram.requests, "post", post)
+    assert flows.postagem(sleep=lambda s: None) == "1 produtos, 1 postagens, 1 com erro"
+    url, body = calls[0]
+    assert url == "https://api.telegram.org/bot123:ABC/sendPhoto" and body["photo"] == "https://img/1.jpg"
+    assert body["parse_mode"] == "HTML" and body["caption"] == (
+        "<b>Fone &lt;XL&gt; &amp; cia</b>\n\n<s>De R$ 150,00</s>\n<b>Por R$ 99,90</b> (33% OFF)\n\n"
+        "🛒 https://amzn.to/x?a=1&amp;b=2")
+    assert db.row("SELECT status FROM products")["status"] == "ENVIADO"  # postou em ao menos um chat
+    assert "chat not found" in db.row("SELECT message FROM logs WHERE level = 'erro'")["message"]
+
+
+def test_telegram_page_and_token_not_leaked(app, monkeypatch):
+    from promosend import db, telegram
+    c, token = login(app)
+    c.post("/config/telegram", data={"token": "123:SECRETO", "chats": " @canal \r\n\r\n-100999 ", "csrf": token})
+    assert db.get_setting("telegram.chats") == "@canal\n-100999"
+    c.post("/config/telegram", data={"token": "", "chats": "@canal", "csrf": token})
+    assert db.get_setting("telegram.token") == "123:SECRETO"  # em branco mantém
+    updates = [{"message": {"chat": {"id": -100999, "type": "supergroup", "title": "Promos"}}},
+               {"channel_post": {"chat": {"id": -100888, "type": "channel", "username": "canal"}}},
+               {"message": {"chat": {"id": 5, "type": "private", "first_name": "Zé"}}}]
+
+    class Resp:
+        status_code = 200
+        def json(self): return {"ok": True, "result": updates}
+    monkeypatch.setattr(telegram.requests, "post", lambda url, json, timeout: Resp())
+    page = c.get("/config/telegram?listar=1").get_data(as_text=True)
+    assert "-100999" in page and "Promos" in page and "-100888" in page and "Zé" not in page
+    assert "SECRETO" not in page
+
+    def boom(url, json, timeout):
+        raise telegram.requests.ConnectionError(f"falhou {url}")
+    monkeypatch.setattr(telegram.requests, "post", boom)
+    page = c.get("/config/telegram?listar=1", follow_redirects=True).get_data(as_text=True)
+    assert "ConnectionError" in page and "SECRETO" not in page
+
+
 def test_setup_login_and_pages(app):
     c = app.test_client()
     assert c.get("/").headers["Location"].endswith("/setup")
