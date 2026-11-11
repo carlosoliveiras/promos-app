@@ -1,6 +1,6 @@
 <div class="panel">
   <h2 style="margin-top:0">API oficial do Mercado Livre</h2>
-  <p class="muted">Usada quando a <b>Fonte da busca</b> é "API oficial". Não depende de cookies e não cai no captcha.
+  <p class="muted">Busca as categorias cadastradas abaixo sempre que estiver autorizada. Não depende de cookies e não cai no captcha.
     Os links de afiliado continuam sendo gerados com os cookies acima.</p>
   {% if api.authorized %}
   <p class="status-ok">Autorizada{% if api.user_id %} (conta {{ api.user_id }}){% endif %} em {{ api.authorized_at }}.
@@ -26,7 +26,7 @@
     {% endif %}
   </div>
   <h2>Categorias da API</h2>
-  <p class="muted">Usadas quando a fonte da busca é a API. A busca traz os mais vendidos de cada categoria que estejam com desconto.
+  <p class="muted">Buscadas pela API sempre que ela estiver autorizada. A busca traz os mais vendidos de cada categoria que estejam com desconto.
     <a href="{{ url_for('ml_api_browse') }}">Ver todas as categorias e IDs</a></p>
   <form method="post" action="{{ url_for('ml_api_categories') }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">

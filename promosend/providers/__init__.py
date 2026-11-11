@@ -7,6 +7,7 @@ Cada provedor é um módulo com:
     SEARCH_DELAY    segundos de espera entre um termo e outro na busca
     search(term, cfg) -> list[dict]        produtos já filtrados
     accepts(term, cfg) -> bool             opcional: se o termo vale para a configuração atual
+    fixed_terms(cfg) -> list[dict]         opcional: termos fixos ({term, grupo}) que não vêm da tabela terms
     generate_links(urls, cfg) -> iter      opcional: (url, link_afiliado | None, erro | None) por URL
 
 Para adicionar um provedor, crie o módulo e registre em PROVIDERS.

@@ -11,12 +11,14 @@ from . import ml_api, require
 
 NAME = "Mercado Livre"
 TERM_LABEL = "URLs de categoria"
-TERM_HELP = ("Uma URL de listagem do Mercado Livre por linha (ofertas, categorias, buscas). "
-             "Usadas quando a fonte da busca é a página; para a API, cadastre as categorias no painel da API.")
+TERM_HELP = ("Uma URL de listagem do Mercado Livre por linha (ofertas, categorias, buscas), lida pela página "
+             "com os cookies. As categorias da API (MLB1055) ficam no painel da API, abaixo.")
 EXTRA_TEMPLATE = "ml_api.html"
 FIELDS = [
-    {"key": "fonte", "label": "Fonte da busca", "type": "select", "default": "pagina",
-     "options": [("pagina", "Página do site (raspagem)"), ("api", "API oficial do Mercado Livre (OAuth)")]},
+    {"key": "hub", "label": "Buscar produtos do hub de afiliados (mercadolivre.com.br/afiliados/hub)",
+     "type": "select", "default": "nao", "options": [("nao", "Não"), ("sim", "Sim")]},
+    {"key": "hub_qtd", "label": "Quantidade de produtos do hub por busca (máx. 1000)", "type": "number",
+     "default": "100"},
     {"key": "cookies", "label": "Cookies da conta de afiliado (texto, JSON da extensão ou \"Copy as cURL\")",
      "type": "textarea", "secret": True},
     {"key": "csrf_token", "label": "x-csrf-token (opcional: o sistema busca sozinho no linkbuilder)",
@@ -35,6 +37,11 @@ MAX_AUTH_ERRORS = 5   # 401/403 seguidos mesmo com csrf novo: a sessão caiu
 BASE = "https://www.mercadolivre.com.br"
 LINK_API = BASE + "/affiliate-program/api/v2/affiliates/createLink"
 LINKBUILDER = BASE + "/afiliados/linkbuilder"
+HUB = BASE + "/afiliados/hub"
+HUB_API = BASE + "/affiliate-program/api/hub/search"
+HUB_GROUP = "Hub de afiliados"
+HUB_MAX = 1000        # o próprio hub para de carregar no scroll em 1000
+HUB_PAUSE = (2, 5)    # segundos entre uma página do scroll e outra
 SESSION_MARKS = ("orguseridp", "ssid")  # sem eles o jar não é uma sessão logada: não sobrescreve o salvo
 HEADERS = {
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -149,32 +156,118 @@ def parse_carousel(page):
                "discount": _clean(disc.group(1)) if disc else None}
 
 
-def parse(page):
-    parser = parse_carousel if "dynamic-carousel__item-container" in page else parse_polycard
+NORDIC = re.compile(r'<script[^>]*id="__NORDIC_RENDERING_CTX__"[^>]*>\s*_n\.ctx\.r=([\s\S]*?)</script>')
+
+
+def _polycards(node):
+    if isinstance(node, dict):
+        yield from node.get("polycards") or []
+        node = list(node.values())
+    if isinstance(node, list):
+        for v in node:
+            yield from _polycards(v)
+
+
+def from_polycard(card):
+    """Card do JSON polycard (hub de afiliados e páginas montadas no navegador)."""
+    comp = {c.get("type"): c for c in card.get("components") or []}
+    price = (comp.get("price") or {}).get("price") or {}
+    pics = (card.get("pictures") or {}).get("pictures") or []
+    chip = (comp.get("chip") or {}).get("chip") or {}
+    rate = re.search(r"(\d+(?:[.,]\d+)?)\s*%", " ".join((chip.get(k) or {}).get("text", "") for k in ("pill", "label")))
+    url = (card.get("metadata") or {}).get("url")
+    return {"name": ((comp.get("title") or {}).get("title") or {}).get("text"),
+            "url": "https://" + url.removeprefix("https://") if url else None,
+            "image": f"https://http2.mlstatic.com/D_NQ_NP_{pics[0]['id']}-O.jpg" if pics else None,
+            "price": (price.get("current_price") or {}).get("value"),
+            "price_original": (price.get("previous_price") or {}).get("value"),
+            "discount": (price.get("discount_label") or {}).get("text"),
+            "commission": float(rate.group(1).replace(",", ".")) / 100 if rate else None}
+
+
+def parse_nordic(page):
+    """Páginas que montam os cards no navegador trazem os produtos num JSON embutido."""
+    m = NORDIC.search(page)
+    if not m:
+        return []
+    try:
+        data = json.JSONDecoder().raw_decode(m.group(1))[0]
+    except ValueError:
+        return []
+    return map(from_polycard, _polycards(data))
+
+
+def keep(items):
+    """Descarta cards incompletos ou de anúncio e deduplica pelo MLB."""
     found = {}
-    for p in parser(page):
+    for p in items:
         url = p["url"] or ""
         if not (p["name"] and p["image"] and p["price"] is not None
                 and "mercadolivre.com.br" in url and "click1.mercadolivre" not in url):
             continue
         p["url"] = re.split(r"[?#]", url)[0]
-        mlb = re.search(r"MLB-?\d+", url, re.I)
+        mlb = re.search(r"MLBU?-?\d+", url, re.I)
         p["external_id"] = mlb.group(0).replace("-", "").upper() if mlb else p["url"]
         found[p["external_id"]] = p
     return list(found.values())
 
 
+def parse(page):
+    if "dynamic-carousel__item-container" in page:
+        return keep(parse_carousel(page))
+    if CARD_START.search(page):
+        return keep(parse_polycard(page))
+    return keep(parse_nordic(page))
+
+
 BLOCKED = ("/captcha/", "account-verification")
 
 
+def fixed_terms(cfg):
+    """O hub de afiliados não é cadastrado como termo: liga e desliga na configuração."""
+    return [{"term": HUB, "grupo": HUB_GROUP}] if cfg.get("hub") == "sim" else []
+
+
+def hub_search(cfg, sleep=time.sleep):
+    """Recomendações do hub, paginadas como no scroll da página, até a quantidade configurada."""
+    try:
+        qtd = min(int(float(cfg.get("hub_qtd") or 0)), HUB_MAX)
+    except ValueError:
+        raise RuntimeError("quantidade do hub inválida: use um número de 1 a 1000")
+    s, found, offset = session(cfg), {}, 0
+    headers = {"x-custom-origin": BASE, "origin": BASE, "referer": HUB}
+    while len(found) < qtd:
+        if offset:
+            sleep(random.uniform(*HUB_PAUSE))
+        r = s.post(HUB_API, params={"is_affiliate": "true", "device": "desktop"},
+                   json={"offset": offset, "filters": []}, headers=headers, timeout=60)
+        _check_blocked(r, "o hub de afiliados")
+        if "/login" in r.url or "json" not in r.headers.get("content-type", ""):
+            raise RuntimeError("os cookies do Mercado Livre expiraram: o hub de afiliados caiu no login. "
+                               "Exporte os cookies de novo e salve em Provedores > Mercado Livre.")
+        r.raise_for_status()
+        cards = (r.json().get("polycard_client_model") or {}).get("polycards") or []
+        if not cards:
+            break
+        before = len(found)
+        found.update({p["external_id"]: p for p in keep(map(from_polycard, cards))})
+        if len(found) == before:  # página só com repetidos: o hub acabou
+            break
+        offset += len(cards)
+    save_cookies(s)
+    return list(found.values())[:qtd]
+
+
 def accepts(term, cfg):
-    """Cada fonte usa a sua lista: categorias (MLB1055) na API, URLs na página."""
-    return ml_api.is_category(term) == (cfg.get("fonte") == "api")
+    """Categorias (MLB1055) vão pela API, que só roda se estiver autorizada; URLs vão pela página."""
+    return not ml_api.is_category(term) or ml_api.status()["authorized"]
 
 
 def search(term, cfg):
-    if cfg.get("fonte") == "api":
+    if ml_api.is_category(term):
         return ml_api.search(term, cfg)
+    if term == HUB:
+        return hub_search(cfg)
     s = session(cfg)
     for attempt in range(3):
         try:

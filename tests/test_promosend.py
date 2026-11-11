@@ -52,6 +52,51 @@ def test_ml_polycard():
     assert p["price"] == 999.90 and p["price_original"] == 1299 and p["discount"] == "23% OFF"
 
 
+def polycard(mlb, title, price, previous=None, chip="GANHOS 12%"):
+    return {"metadata": {"id": mlb, "url": f"www.mercadolivre.com.br/produto/p/{mlb}"},
+            "pictures": {"pictures": [{"id": "970221-MLA1_082026"}]},
+            "components": [{"type": "title", "title": {"text": title}},
+                           {"type": "chip", "chip": {"pill": {"text": chip}}},
+                           {"type": "price", "price": {"current_price": {"value": price},
+                                                       **({"previous_price": {"value": previous},
+                                                           "discount_label": {"text": "50% OFF no Pix"}}
+                                                          if previous else {})}}]}
+
+
+def test_ml_nordic_json():
+    from promosend.providers import mercadolivre
+    data = {"appProps": {"bricks": [{"data": {"recommendations": {"polycards": [
+        polycard("MLB1", "Fone", 50, 100), polycard("MLB2", "Sem preço", None)]}}}]}}
+    page = f'<script id="__NORDIC_RENDERING_CTX__">_n.ctx.r={json.dumps(data)};</script>'
+    [p] = mercadolivre.parse(page)
+    assert p == {"name": "Fone", "url": "https://www.mercadolivre.com.br/produto/p/MLB1", "external_id": "MLB1",
+                 "image": "https://http2.mlstatic.com/D_NQ_NP_970221-MLA1_082026-O.jpg", "price": 50,
+                 "price_original": 100, "discount": "50% OFF no Pix", "commission": 0.12}
+
+
+def test_ml_hub_paginates_until_quantity(monkeypatch):
+    from promosend.providers import mercadolivre
+    offsets = []
+
+    class Resp:
+        url, status_code, headers = mercadolivre.HUB_API, 200, {"content-type": "application/json"}
+        def __init__(self, cards): self.cards = cards
+        def raise_for_status(self): pass
+        def json(self): return {"polycard_client_model": {"polycards": self.cards}}
+
+    class Session:
+        def post(self, url, params, json, headers, timeout):
+            offsets.append(json["offset"])
+            return Resp([polycard(f"MLB{json['offset'] + i}", "P", 10) for i in range(18)])
+
+    monkeypatch.setattr(mercadolivre, "session", lambda cfg: Session())
+    monkeypatch.setattr(mercadolivre, "save_cookies", lambda s: None)
+    items = mercadolivre.hub_search({"hub_qtd": "40"}, sleep=lambda s: None)
+    assert len(items) == 40 and offsets == [0, 18, 36]
+    assert mercadolivre.fixed_terms({"hub": "nao"}) == []
+    assert mercadolivre.fixed_terms({"hub": "sim"}) == [{"term": mercadolivre.HUB, "grupo": "Hub de afiliados"}]
+
+
 def test_ml_carousel():
     from promosend.providers import mercadolivre
     [p] = mercadolivre.parse(CAROUSEL)
@@ -367,7 +412,7 @@ def test_ml_api_search_picks_discounted_offer(app, monkeypatch):
     assert ml_api.search_text("https://lista.mercadolivre.com.br/celular_Desde_51") == "celular"
     assert ml_api.search_text(" airfryer ") == "airfryer"
     with pytest.raises(RuntimeError, match="ID da categoria"):
-        mercadolivre.search("https://lista.mercadolivre.com.br/celular", {"fonte": "api"})
+        ml_api.search("https://lista.mercadolivre.com.br/celular", {})
 
     responses = {
         "/highlights/MLB/category/MLB1055": {"content": [{"id": "P1", "type": "PRODUCT"}, {"id": "P2", "type": "PRODUCT"},
@@ -380,7 +425,7 @@ def test_ml_api_search_picks_discounted_offer(app, monkeypatch):
     }
     monkeypatch.setattr(ml_api, "get", lambda path, cfg, params=None: responses[path])
     monkeypatch.setattr(ml_api, "CALL_DELAY", 0)
-    [p] = mercadolivre.search("mlb1055", {"fonte": "api"})
+    [p] = mercadolivre.search("mlb1055", {})
     assert p == {"external_id": "MLB12", "name": "Celular X", "image": "https://img/1.jpg",
                  "url": "https://produto.mercadolivre.com.br/MLB-12", "price": 90, "price_original": 120,
                  "discount": "25% OFF"}
@@ -391,9 +436,9 @@ def test_ml_api_oauth_flow_and_refresh(app, monkeypatch):
     from promosend import db
     from promosend.providers import ml_api
     c, token = login(app)
-    c.post("/config/provedores/mercadolivre", data={"fonte": "api", "client_id": "CID", "client_secret": "SEC",
+    c.post("/config/provedores/mercadolivre", data={"client_id": "CID", "client_secret": "SEC",
                                                     "redirect_uri": "", "csrf": token})
-    assert db.get_setting("mercadolivre.fonte") == "api"
+    assert db.get_setting("mercadolivre.client_id") == "CID"
 
     r = c.post("/config/provedores/mercadolivre/api/autorizar", data={"csrf": token})
     q = parse_qs(urlparse(r.headers["Location"]).query)
@@ -527,13 +572,13 @@ def test_ml_api_category_registration_and_source_split(app, monkeypatch):
     seen = []
     monkeypatch.setattr(mercadolivre, "search", lambda term, cfg: seen.append(term) or [])
     monkeypatch.setattr(mercadolivre, "SEARCH_DELAY", 0)
-    db.set_setting("mercadolivre.fonte", "api")
-    flows.busca("mercadolivre")
-    assert sorted(seen) == ["MLB1055", "MLB1646"]
-    seen.clear()
-    db.set_setting("mercadolivre.fonte", "pagina")
-    flows.busca("mercadolivre")
+    flows.busca("mercadolivre")  # API não autorizada: só a URL, pela página
     assert seen == ["https://lista.mercadolivre.com.br/tvs"]
+    seen.clear()
+    monkeypatch.setattr(ml_api, "status", lambda: {"authorized": True})
+    db.set_setting("mercadolivre.hub", "sim")
+    flows.busca("mercadolivre")  # autorizada: página e API juntas, mais o hub ligado
+    assert sorted(seen) == sorted(["https://lista.mercadolivre.com.br/tvs", "MLB1055", "MLB1646", mercadolivre.HUB])
 
 
 def test_ml_api_category_browser(app, monkeypatch):
