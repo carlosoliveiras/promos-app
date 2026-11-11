@@ -751,3 +751,19 @@ def test_popular_page(app, monkeypatch):
     assert '9@g.us|Promo' in html and "segredo" not in html
     c.post("/config/popular-grupo", data={"csrf": t, "bot": "1", "count": "5", "cron": "0 9 * * *", "group": "9@g.us|Promo"})
     assert db.get_setting("popular.group") == "9@g.us" and db.get_setting("popular.supabase_key") == "segredo"
+    # bot que adiciona pessoas sai da postagem e não volta mesmo se o formulário mandar
+    assert db.row("SELECT posts FROM bots WHERE id = 1")["posts"] == 0
+    assert "não posta" in c.get("/config/whatsapp").get_data(as_text=True)
+    c.post("/config/whatsapp/postagem", data={"csrf": t, "bot": "1", "post_count": "1", "cron": "*/10 * * * *"})
+    assert db.row("SELECT posts FROM bots WHERE id = 1")["posts"] == 0
+
+
+def test_postagem_skips_popular_bot(app, monkeypatch):
+    from promosend import db, flows, whatsapp
+    db.set_setting("whatsapp.url", "http://wuz")
+    db.set_setting("popular.bots", "1")
+    db.execute("INSERT INTO bots (id, name, token, posts) VALUES (1, 'b1', 't1', 1)")  # posts ficou 1 de antes
+    db.execute("INSERT INTO bot_groups VALUES (1, 'g@g.us', 'A')")
+    db.upsert_products("shopee", "", [{"external_id": "1", "name": "P", "image": "img", "price": 1, "affiliate_url": "u"}])
+    monkeypatch.setattr(whatsapp, "send_image", lambda *a: pytest.fail("bot do Popular Grupo postou"))
+    assert flows.postagem(sleep=lambda s: None) == "configure um bot do WhatsApp com grupos ou um chat do Telegram"

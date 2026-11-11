@@ -6,7 +6,8 @@ def _call(method, url, key, table, params, **kw):
     if not (url and key and table):
         raise RuntimeError("configure a URL, a chave e a tabela do Supabase")
     r = requests.request(method, f"{url.rstrip('/')}/rest/v1/{table}", params=params, timeout=30,
-                         headers={"apikey": key, "Authorization": f"Bearer {key}"}, **kw)
+                         # só apikey: a chave nova (sb_secret_) não é JWT e o gateway monta o Authorization
+                         headers={"apikey": key}, **kw)
     if not r.ok:
         raise RuntimeError(f"Supabase HTTP {r.status_code}: {r.text[:300]}")
     return r

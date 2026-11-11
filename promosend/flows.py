@@ -92,9 +92,10 @@ def caption(p, html=False):
 def postagem(_=None, sleep=time.sleep):
     url, tg_token = db.get_setting("whatsapp.url"), db.get_setting("telegram.token")
     count = int(db.get_setting("whatsapp.post_count", "1") or 1)
+    adders = popular_bot_ids()  # bot do Popular Grupo nunca posta produto
     targets = [("whatsapp", t["token"], t["jid"], f"{t['name']} (bot {t['bot']})") for t in db.rows(
-        "SELECT b.token, b.name AS bot, g.jid, g.name FROM bots b JOIN bot_groups g ON g.bot_id = b.id "
-        "WHERE b.posts = 1")] if url else []
+        "SELECT b.id, b.token, b.name AS bot, g.jid, g.name FROM bots b JOIN bot_groups g ON g.bot_id = b.id "
+        "WHERE b.posts = 1") if t["id"] not in adders] if url else []
     if tg_token:
         targets += [("telegram", tg_token, chat, f"{chat} (Telegram)")
                     for chat in db.get_setting("telegram.chats").split()]
@@ -127,12 +128,16 @@ def postagem(_=None, sleep=time.sleep):
     return f"{len(products)} produtos, {sent} postagens" + (f", {errors} com erro" if errors else "")
 
 
+def popular_bot_ids():
+    return {int(i) for i in db.get_setting("popular.bots").split()}
+
+
 def popular_grupo(sleep=time.sleep):
     """Pega números pendentes no Supabase e adiciona no grupo, revezando entre os bots escolhidos."""
     url, group = db.get_setting("whatsapp.url"), db.get_setting("popular.group")
     sb = (db.get_setting("popular.supabase_url"), db.get_setting("popular.supabase_key"),
           db.get_setting("popular.table", "numeros"))
-    ids = [int(i) for i in db.get_setting("popular.bots").split()]
+    ids = popular_bot_ids()
     bots = [b for b in db.rows("SELECT id, name, token FROM bots ORDER BY id") if b["id"] in ids]
     if not (url and group and bots):
         return "configure o wuzapi, o grupo e pelo menos um bot"

@@ -60,8 +60,13 @@
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label>Bots que postam</label>
     {% for b in bots %}
+    {% if b.id in adders %}
+    <label class="row muted" style="font-weight:400;margin:4px 0"><input type="checkbox" disabled>
+      {{ b.name }} (adiciona pessoas no <a href="{{ url_for('popular') }}">Popular Grupo</a>, não posta)</label>
+    {% else %}
     <label class="row" style="font-weight:400;margin:4px 0"><input type="checkbox" name="bot" value="{{ b.id }}" {{ 'checked' if b.posts }}>
       {{ b.name }} <span class="muted">({{ b.groups }} grupos)</span></label>
+    {% endif %}
     {% else %}<p class="muted">Cadastre um bot acima.</p>{% endfor %}
     <label for="post_count">Produtos por execução</label>
     <input id="post_count" name="post_count" type="number" min="1" value="{{ post_count }}" style="max-width:120px">
