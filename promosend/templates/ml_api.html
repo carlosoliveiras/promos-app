@@ -1,6 +1,6 @@
 <div class="panel">
   <h2 style="margin-top:0">API oficial do Mercado Livre</h2>
-  <p class="muted">Usada quando a <b>Fonte da busca</b> é "API oficial". Não depende de cookies e não cai no captcha.
+  <p class="muted">Busca as categorias cadastradas abaixo sempre que estiver autorizada. Não depende de cookies e não cai no captcha.
     Os links de afiliado continuam sendo gerados com os cookies acima.</p>
   {% if api.authorized %}
   <p class="status-ok">Autorizada{% if api.user_id %} (conta {{ api.user_id }}){% endif %} em {{ api.authorized_at }}.
