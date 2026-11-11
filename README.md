@@ -49,7 +49,12 @@ Rode só **um** processo: o agendador dos fluxos roda dentro dele.
 4. **Telegram**: crie um bot no [@BotFather](https://t.me/BotFather), adicione-o como administrador nos grupos e
    canais e salve o token. Em *Chats*, coloque um por linha: `@canal` público ou o ID numérico. Para achar o ID,
    mande uma mensagem no grupo e use *Ver chats recentes do bot*. A postagem usa o mesmo fluxo do WhatsApp.
-5. **Produtos**: a tela inicial mostra os produtos em cards, com filtro e paginação.
+5. **Popular Grupo**: adiciona pessoas num grupo do WhatsApp a partir de uma tabela do Supabase com as colunas
+   `numero` e `status`. Informe a URL do projeto, a chave `service_role` e a tabela (padrão `numeros`), marque os
+   bots (todos administradores do grupo), salve e use *Listar grupos dos bots* para escolher o grupo.
+   A cada execução o sistema pega os números com status vazio ou `PENDENTE`, adiciona um por um revezando entre
+   os bots, com intervalo aleatório de 1 a 4 s, e grava `ADICIONADO` ou `ERRO` na tabela.
+6. **Produtos**: a tela inicial mostra os produtos em cards, com filtro e paginação.
 
 Status dos produtos: `PENDENTE` (sem link de afiliado), `PRONTO` (com link) e `ENVIADO`.
 

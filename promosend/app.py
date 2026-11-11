@@ -5,7 +5,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, scheduler, telegram, whatsapp
-from .flows import FLOW_LABELS, POST_JOB, brl, default_jobs, job_label
+from .flows import FLOW_LABELS, POPULAR_JOB, POST_JOB, brl, default_jobs, job_label
 from .providers import PROVIDERS, ml_api
 
 PUBLIC = {"login", "setup", "static"}
@@ -306,6 +306,43 @@ def create_app():
                 db.execute("UPDATE bots SET posts = ? WHERE id = ?", int(b["id"] in chosen), b["id"])
             flash("Fluxo de postagem salvo.")
         return redirect(url_for("whatsapp_config"))
+
+    @app.route("/config/popular-grupo", methods=["GET", "POST"])
+    def popular():
+        if request.method == "POST":
+            f = request.form
+            count = f.get("count", type=int)
+            if not count or count < 1:
+                flash("Quantidade de números deve ser 1 ou mais.")
+            elif save_cron(POPULAR_JOB):
+                db.set_setting("popular.supabase_url", f.get("supabase_url", "").strip())
+                if f.get("supabase_key", "").strip():  # em branco mantém a chave salva
+                    db.set_setting("popular.supabase_key", f["supabase_key"].strip())
+                db.set_setting("popular.table", f.get("table", "").strip() or "numeros")
+                db.set_setting("popular.bots", " ".join(f.getlist("bot")))
+                db.set_setting("popular.count", str(count))
+                if f.get("group"):
+                    jid, _, name = f["group"].partition("|")
+                    db.set_setting("popular.group", jid)
+                    db.set_setting("popular.group_name", name or jid)
+                flash("Popular Grupo salvo.")
+            return redirect(url_for("popular"))
+        chosen = {int(i) for i in db.get_setting("popular.bots").split()}
+        bots = db.rows("SELECT id, name, token FROM bots ORDER BY name")
+        groups = None
+        if request.args.get("listar"):
+            groups = {}
+            for b in [b for b in bots if b["id"] in chosen] or bots:
+                try:
+                    groups.update({g["jid"]: g["name"] for g in whatsapp.list_groups(db.get_setting("whatsapp.url"), b["token"])})
+                except Exception as e:
+                    flash(f"Não foi possível listar os grupos do bot {b['name']}: {e}")
+        return render_template("popular.html", bots=bots, chosen=chosen, groups=groups,
+                               group=db.get_setting("popular.group"), group_name=db.get_setting("popular.group_name"),
+                               supabase_url=db.get_setting("popular.supabase_url"),
+                               has_key=bool(db.get_setting("popular.supabase_key")),
+                               table=db.get_setting("popular.table", "numeros"), count=db.get_setting("popular.count", "10"),
+                               job=db.row("SELECT * FROM jobs WHERE id = ?", POPULAR_JOB))
 
     @app.route("/config/telegram", methods=["GET", "POST"])
     def telegram_config():

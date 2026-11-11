@@ -702,3 +702,52 @@ def test_amazon_links_short_with_long_fallback(app, monkeypatch):
     out = list(amazon.generate_links(urls, cfg, sleep=lambda s: None))
     assert len(fake2.calls) == amazon.MAX_FAILS
     assert [l for _, l, _ in out] == [u + "?tag=loja-20" for u in urls]
+
+
+def test_popular_grupo(app, monkeypatch):
+    from promosend import db, flows, supabase, whatsapp
+    assert flows.popular_grupo() == "configure o wuzapi, o grupo e pelo menos um bot"
+    with db.connect() as con:
+        con.execute("INSERT INTO bots (id, name, token) VALUES (1, 'A', 'tA'), (2, 'B', 'tB'), (3, 'C', 'tC')")
+    for k, v in {"whatsapp.url": "http://wuz", "popular.group": "123@g.us", "popular.bots": "1 2",
+                 "popular.supabase_url": "https://x.supabase.co", "popular.supabase_key": "k", "popular.count": "3"}.items():
+        db.set_setting(k, v)
+    calls = []
+
+    def req(method, url, params, timeout, headers, **kw):
+        calls.append((method, url, params, kw.get("json")))
+        return type("R", (), {"ok": True, "json": lambda self: [{"numero": "+55 11 9999-0001"}, {"numero": "5511999990002"},
+                                                                {"numero": "5511999990003"}]})()
+    monkeypatch.setattr(supabase.requests, "request", req)
+    added = []
+
+    def add(url, token, group, phone):
+        if phone.endswith("2"):
+            raise RuntimeError("recusado")
+        added.append((token, group, phone))
+    monkeypatch.setattr(whatsapp, "add_participant", add)
+    sleeps = []
+    assert flows.popular_grupo(sleep=sleeps.append) == "2 de 3 números adicionados, 1 com erro"
+    assert added == [("tA", "123@g.us", "551199990001"), ("tA", "123@g.us", "5511999990003")]  # bot C não marcado
+    assert len(sleeps) == 2 and all(1 <= s <= 4 for s in sleeps)
+    assert calls[0][1] == "https://x.supabase.co/rest/v1/numeros" and calls[0][2]["limit"] == 3
+    assert [(c[2]["numero"], c[3]["status"]) for c in calls[1:]] == [
+        ("eq.+55 11 9999-0001", "ADICIONADO"), ("eq.5511999990002", "ERRO"), ("eq.5511999990003", "ADICIONADO")]
+
+
+def test_popular_page(app, monkeypatch):
+    from promosend import db, whatsapp
+    c = app.test_client()
+    t = csrf(c, "/setup")
+    c.post("/setup", data={"csrf": t, "username": "a", "password": "12345678", "confirm": "12345678"})
+    with db.connect() as con:
+        con.execute("INSERT INTO bots (id, name, token) VALUES (1, 'A', 'tA')")
+    t = csrf(c, "/config/popular-grupo")
+    c.post("/config/popular-grupo", data={"csrf": t, "bot": "1", "count": "5", "cron": "0 9 * * *",
+                                          "supabase_url": "https://x.supabase.co", "supabase_key": "segredo", "table": ""})
+    assert db.get_setting("popular.bots") == "1" and db.get_setting("popular.table") == "numeros"
+    monkeypatch.setattr(whatsapp, "list_groups", lambda url, token: [{"jid": "9@g.us", "name": "Promo"}])
+    html = c.get("/config/popular-grupo?listar=1").get_data(as_text=True)
+    assert '9@g.us|Promo' in html and "segredo" not in html
+    c.post("/config/popular-grupo", data={"csrf": t, "bot": "1", "count": "5", "cron": "0 9 * * *", "group": "9@g.us|Promo"})
+    assert db.get_setting("popular.group") == "9@g.us" and db.get_setting("popular.supabase_key") == "segredo"
