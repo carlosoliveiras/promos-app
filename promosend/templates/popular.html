@@ -12,10 +12,10 @@
       status vazio ou <code>PENDENTE</code>. Depois de cada tentativa o status vira <code>ADICIONADO</code> ou <code>ERRO</code>.</p>
     <label for="supabase_url">URL do projeto</label>
     <input id="supabase_url" name="supabase_url" value="{{ supabase_url }}" placeholder="https://xxxx.supabase.co">
-    <label for="supabase_key">Chave service_role</label>
+    <label for="supabase_key">Chave secreta</label>
     <input id="supabase_key" name="supabase_key" type="password" autocomplete="off"
-           placeholder="{{ '•••••• salva — deixe em branco para manter' if has_key else 'Project Settings › API › service_role' }}">
-    <div class="muted">A chave service_role ignora o RLS e consegue atualizar o status. Não compartilhe.</div>
+           placeholder="{{ '•••••• salva — deixe em branco para manter' if has_key else 'sb_secret_... ou service_role' }}">
+    <div class="muted">A chave secreta (sb_secret_... ou a antiga service_role) ignora o RLS e consegue atualizar o status. Não compartilhe.</div>
     <label for="table">Tabela</label>
     <input id="table" name="table" value="{{ table }}" style="max-width:240px">
   </div>
