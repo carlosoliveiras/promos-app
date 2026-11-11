@@ -22,7 +22,9 @@
 
   <div class="panel">
     <h2 style="margin-top:0">Bots e grupo</h2>
-    <p class="muted">Os bots se revezam: cada número é adicionado por um bot. Todos precisam ser administradores do grupo.</p>
+    <p class="muted">Os bots se revezam: cada número é adicionado por um bot. Todos precisam ser administradores do grupo.
+      Bot marcado aqui só adiciona pessoas: ele sai do fluxo de postagem e não posta produtos.
+      Para ele voltar a postar, desmarque aqui e marque de novo em <a href="{{ url_for('whatsapp_config') }}">WhatsApp</a>.</p>
     <label>Bots que adicionam</label>
     {% for b in bots %}
     <label class="row" style="font-weight:400;margin:4px 0"><input type="checkbox" name="bot" value="{{ b.id }}" {{ 'checked' if b.id in chosen }}>

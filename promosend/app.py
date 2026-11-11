@@ -5,7 +5,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, scheduler, telegram, whatsapp
-from .flows import FLOW_LABELS, POPULAR_JOB, POST_JOB, brl, default_jobs, job_label
+from .flows import FLOW_LABELS, POPULAR_JOB, POST_JOB, brl, default_jobs, job_label, popular_bot_ids
 from .providers import PROVIDERS, ml_api
 
 PUBLIC = {"login", "setup", "static"}
@@ -290,7 +290,7 @@ def create_app():
                        "FROM bots b ORDER BY b.name")
         return render_template("whatsapp.html", url=db.get_setting("whatsapp.url"), bots=bots,
                                has_admin=bool(db.get_setting("whatsapp.admin_token")),
-                               post_count=db.get_setting("whatsapp.post_count", "1"),
+                               post_count=db.get_setting("whatsapp.post_count", "1"), adders=popular_bot_ids(),
                                job=db.row("SELECT * FROM jobs WHERE id = ?", POST_JOB))
 
     @app.post("/config/whatsapp/postagem")
@@ -301,7 +301,7 @@ def create_app():
             return redirect(url_for("whatsapp_config"))
         if save_cron(POST_JOB):
             db.set_setting("whatsapp.post_count", str(count))
-            chosen = set(request.form.getlist("bot", type=int))
+            chosen = set(request.form.getlist("bot", type=int)) - popular_bot_ids()
             for b in db.rows("SELECT id FROM bots"):
                 db.execute("UPDATE bots SET posts = ? WHERE id = ?", int(b["id"] in chosen), b["id"])
             flash("Fluxo de postagem salvo.")
@@ -319,7 +319,10 @@ def create_app():
                 if f.get("supabase_key", "").strip():  # em branco mantém a chave salva
                     db.set_setting("popular.supabase_key", f["supabase_key"].strip())
                 db.set_setting("popular.table", f.get("table", "").strip() or "numeros")
-                db.set_setting("popular.bots", " ".join(f.getlist("bot")))
+                adders = f.getlist("bot", type=int)
+                db.set_setting("popular.bots", " ".join(map(str, adders)))
+                for bid in adders:  # bot que adiciona pessoas deixa de postar produtos
+                    db.execute("UPDATE bots SET posts = 0 WHERE id = ?", bid)
                 db.set_setting("popular.count", str(count))
                 if f.get("group"):
                     jid, _, name = f["group"].partition("|")
@@ -327,7 +330,7 @@ def create_app():
                     db.set_setting("popular.group_name", name or jid)
                 flash("Popular Grupo salvo.")
             return redirect(url_for("popular"))
-        chosen = {int(i) for i in db.get_setting("popular.bots").split()}
+        chosen = popular_bot_ids()
         bots = db.rows("SELECT id, name, token FROM bots ORDER BY name")
         groups = None
         if request.args.get("listar"):
