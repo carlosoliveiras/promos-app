@@ -14,6 +14,7 @@
   {%- elif name == 'plug' %}<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z M12 18v4"/>
   {%- elif name == 'chat' %}<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>
   {%- elif name == 'send' %}<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>
+  {%- elif name == 'users' %}<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>
   {%- elif name == 'list' %}<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
   {%- elif name == 'clock' %}<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
   {%- elif name == 'logout' %}<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
@@ -28,6 +29,7 @@
     <a href="{{ url_for('providers') }}" class="{{ 'active' if request.endpoint in ('providers', 'provider') }}" title="Provedores" aria-label="Provedores">{{ icon('plug') }}<span>Provedores</span></a>
     <a href="{{ url_for('whatsapp_config') }}" class="{{ 'active' if request.endpoint in ('whatsapp_config', 'bot') }}" title="WhatsApp" aria-label="WhatsApp">{{ icon('chat') }}<span>WhatsApp</span></a>
     <a href="{{ url_for('telegram_config') }}" class="{{ 'active' if request.endpoint == 'telegram_config' }}" title="Telegram" aria-label="Telegram">{{ icon('send') }}<span>Telegram</span></a>
+    <a href="{{ url_for('popular') }}" class="{{ 'active' if request.endpoint == 'popular' }}" title="Popular Grupo" aria-label="Popular Grupo">{{ icon('users') }}<span>Popular Grupo</span></a>
     <a href="{{ url_for('logs') }}" class="{{ 'active' if request.endpoint == 'logs' }}" title="Logs" aria-label="Logs">{{ icon('list') }}<span>Logs</span></a>
     <a href="{{ url_for('jobs') }}" class="{{ 'active' if request.endpoint == 'jobs' }}" title="Agendamentos" aria-label="Agendamentos">{{ icon('clock') }}<span>Agendamentos</span></a>
     <form method="post" action="{{ url_for('logout') }}" class="bottom">

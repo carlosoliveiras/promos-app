@@ -36,6 +36,12 @@ def list_groups(base_url, token):
     return sorted(({"jid": g["JID"], "name": g.get("Name") or g["JID"]} for g in groups), key=lambda g: g["name"].lower())
 
 
+def add_participant(base_url, token, group_jid, phone):
+    # o wuzapi não informa o resultado por número: sucesso só quer dizer que o WhatsApp aceitou o pedido
+    _call("POST", base_url, "/group/updateparticipants", {"Token": token},
+          json={"GroupJID": group_jid, "Phone": [phone], "Action": "add"})
+
+
 def create_user(base_url, admin_token, name, token):
     _call("POST", base_url, "/admin/users", {"Authorization": admin_token}, json={"name": name, "token": token})
 
