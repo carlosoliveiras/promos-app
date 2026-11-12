@@ -7,9 +7,9 @@
 <table class="stack">
   <tr><th>Fluxo</th><th>Cron</th><th>Ativo</th><th></th><th>Última execução</th></tr>
   {% for j in jobs %}
-  {% set pkey, flow = j.id.split('.') %}
   <tr>
-    <td data-label="Fluxo">{{ PROVIDERS[pkey].NAME if pkey in PROVIDERS else 'WhatsApp' }}<br><span class="muted">{{ FLOW_LABELS.get(flow, flow) }}</span></td>
+    {% set name, _, flow = job_label(j.id).partition(' · ') %}
+    <td data-label="Fluxo">{{ name }}<br><span class="muted">{{ flow }}</span></td>
     <td colspan="3" data-label="Cron">
       <form method="post" action="{{ url_for('save_job', job_id=j.id) }}" class="row">
         <input type="hidden" name="csrf" value="{{ csrf_token() }}">

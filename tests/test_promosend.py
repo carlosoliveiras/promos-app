@@ -779,6 +779,7 @@ def test_popular_page(app, monkeypatch):
     assert [(j["cron"], j["enabled"]) for j in db.rows("SELECT * FROM jobs WHERE id LIKE 'popular.grupo.%' ORDER BY id")] == [
         ("0 9 * * *", 1), ("30 14 * * *", 0)]
     assert db.get_setting("popular.supabase_key") == "segredo"
+    assert "Popular Grupo" in c.get("/config/agendamentos").get_data(as_text=True)  # id com 3 partes não quebra a página
     # bot que adiciona pessoas sai da postagem e não volta mesmo se o formulário mandar
     assert db.row("SELECT posts FROM bots WHERE id = 1")["posts"] == 0
     assert "não posta" in c.get("/config/whatsapp").get_data(as_text=True)
