@@ -14,6 +14,15 @@ scheduler = BackgroundScheduler(job_defaults={"coalesce": True, "max_instances":
 def seed_jobs():
     for job_id, cron in flows.default_jobs().items():
         db.execute("INSERT OR IGNORE INTO jobs (id, cron) VALUES (?, ?)", job_id, cron)
+    old = db.row("SELECT * FROM jobs WHERE id = ?", flows.POPULAR_JOB)
+    if old:  # migra o Popular Grupo único para um job por bot, com a mesma configuração
+        for bid in flows.popular_bot_ids():
+            db.execute("INSERT OR IGNORE INTO jobs (id, cron, enabled) VALUES (?, ?, ?)",
+                       flows.popular_job(bid), old["cron"], old["enabled"])
+            for k in ("group", "group_name", "count"):
+                if db.get_setting(f"popular.{k}") and not db.get_setting(f"popular.{bid}.{k}"):
+                    db.set_setting(f"popular.{bid}.{k}", db.get_setting(f"popular.{k}"))
+        db.execute("DELETE FROM jobs WHERE id = ?", flows.POPULAR_JOB)
 
 
 def run_job(job_id, origem="agendado"):

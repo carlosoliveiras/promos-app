@@ -5,7 +5,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, scheduler, telegram, whatsapp
-from .flows import FLOW_LABELS, POPULAR_JOB, POST_JOB, brl, default_jobs, job_label, popular_bot_ids
+from .flows import FLOW_LABELS, POST_JOB, brl, job_label, popular_bot_ids, popular_job
 from .providers import PROVIDERS, ml_api
 
 PUBLIC = {"login", "setup", "static"}
@@ -248,8 +248,7 @@ def create_app():
         return render_template("jobs.html", jobs=db.rows("SELECT * FROM jobs ORDER BY id"))
 
     def get_job(job_id):
-        if job_id not in default_jobs():
-            abort(404)
+        db.row("SELECT 1 FROM jobs WHERE id = ?", job_id) or abort(404)
 
     def save_cron(job_id):
         """Salva cron/ativo do formulário. Retorna False se o cron for inválido."""
@@ -307,45 +306,67 @@ def create_app():
             flash("Fluxo de postagem salvo.")
         return redirect(url_for("whatsapp_config"))
 
+    def drop_job(job_id):
+        db.execute("DELETE FROM jobs WHERE id = ?", job_id)
+        if scheduler.scheduler.running:
+            scheduler.sync(job_id)  # sem a linha no banco, só tira do agendador
+
     @app.route("/config/popular-grupo", methods=["GET", "POST"])
     def popular():
         if request.method == "POST":
             f = request.form
-            count = f.get("count", type=int)
-            if not count or count < 1:
-                flash("Quantidade de números deve ser 1 ou mais.")
-            elif save_cron(POPULAR_JOB):
-                db.set_setting("popular.supabase_url", f.get("supabase_url", "").strip())
-                if f.get("supabase_key", "").strip():  # em branco mantém a chave salva
-                    db.set_setting("popular.supabase_key", f["supabase_key"].strip())
-                db.set_setting("popular.table", f.get("table", "").strip() or "numeros")
-                adders = f.getlist("bot", type=int)
-                db.set_setting("popular.bots", " ".join(map(str, adders)))
-                for bid in adders:  # bot que adiciona pessoas deixa de postar produtos
-                    db.execute("UPDATE bots SET posts = 0 WHERE id = ?", bid)
-                db.set_setting("popular.count", str(count))
-                if f.get("group"):
-                    jid, _, name = f["group"].partition("|")
-                    db.set_setting("popular.group", jid)
-                    db.set_setting("popular.group_name", name or jid)
-                flash("Popular Grupo salvo.")
+            db.set_setting("popular.supabase_url", f.get("supabase_url", "").strip())
+            if f.get("supabase_key", "").strip():  # em branco mantém a chave salva
+                db.set_setting("popular.supabase_key", f["supabase_key"].strip())
+            db.set_setting("popular.table", f.get("table", "").strip() or "numeros")
+            adders = set(f.getlist("bot", type=int))
+            for bid in popular_bot_ids() - adders:
+                drop_job(popular_job(bid))
+            for bid in adders:  # bot que adiciona pessoas deixa de postar produtos
+                db.execute("UPDATE bots SET posts = 0 WHERE id = ?", bid)
+                db.execute("INSERT OR IGNORE INTO jobs (id, cron) VALUES (?, '0 9 * * *')", popular_job(bid))
+            db.set_setting("popular.bots", " ".join(map(str, sorted(adders))))
+            flash("Popular Grupo salvo.")
             return redirect(url_for("popular"))
         chosen = popular_bot_ids()
         bots = db.rows("SELECT id, name, token FROM bots ORDER BY name")
-        groups = None
-        if request.args.get("listar"):
-            groups = {}
-            for b in [b for b in bots if b["id"] in chosen] or bots:
+        listar = request.args.get("listar", type=int)
+        adders = []
+        for b in bots:
+            if b["id"] not in chosen:
+                continue
+            cfg = f"popular.{b['id']}."
+            groups = None
+            if listar == b["id"]:
                 try:
-                    groups.update({g["jid"]: g["name"] for g in whatsapp.list_groups(db.get_setting("whatsapp.url"), b["token"])})
+                    groups = {g["jid"]: g["name"] for g in whatsapp.list_groups(db.get_setting("whatsapp.url"), b["token"])}
                 except Exception as e:
                     flash(f"Não foi possível listar os grupos do bot {b['name']}: {e}")
-        return render_template("popular.html", bots=bots, chosen=chosen, groups=groups,
-                               group=db.get_setting("popular.group"), group_name=db.get_setting("popular.group_name"),
+            adders.append({"id": b["id"], "name": b["name"], "groups": groups, "group": db.get_setting(cfg + "group"),
+                           "group_name": db.get_setting(cfg + "group_name"), "count": db.get_setting(cfg + "count", "10"),
+                           "job": db.row("SELECT * FROM jobs WHERE id = ?", popular_job(b["id"]))})
+        return render_template("popular.html", bots=bots, chosen=chosen, adders=adders,
                                supabase_url=db.get_setting("popular.supabase_url"),
                                has_key=bool(db.get_setting("popular.supabase_key")),
-                               table=db.get_setting("popular.table", "numeros"), count=db.get_setting("popular.count", "10"),
-                               job=db.row("SELECT * FROM jobs WHERE id = ?", POPULAR_JOB))
+                               table=db.get_setting("popular.table", "numeros"))
+
+    @app.post("/config/popular-grupo/<int:bid>")
+    def popular_bot(bid):
+        get_bot(bid)
+        if bid not in popular_bot_ids():
+            abort(404)
+        f, cfg = request.form, f"popular.{bid}."
+        count = f.get("count", type=int)
+        if not count or count < 1:
+            flash("Quantidade de números deve ser 1 ou mais.")
+        elif save_cron(popular_job(bid)):
+            db.set_setting(cfg + "count", str(count))
+            if f.get("group"):
+                jid, _, name = f["group"].partition("|")
+                db.set_setting(cfg + "group", jid)
+                db.set_setting(cfg + "group_name", name or jid)
+            flash("Bot do Popular Grupo salvo.")
+        return redirect(url_for("popular"))
 
     @app.route("/config/telegram", methods=["GET", "POST"])
     def telegram_config():
@@ -391,6 +412,9 @@ def create_app():
         get_bot(bid)
         db.execute("DELETE FROM bot_groups WHERE bot_id = ?", bid)
         db.execute("DELETE FROM bots WHERE id = ?", bid)
+        if bid in popular_bot_ids():
+            drop_job(popular_job(bid))
+            db.set_setting("popular.bots", " ".join(str(i) for i in sorted(popular_bot_ids() - {bid})))
         flash("Bot excluído.")
         return redirect(url_for("whatsapp_config"))
 

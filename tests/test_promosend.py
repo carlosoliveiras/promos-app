@@ -706,12 +706,14 @@ def test_amazon_links_short_with_long_fallback(app, monkeypatch):
 
 def test_popular_grupo(app, monkeypatch):
     from promosend import db, flows, supabase, whatsapp
-    assert flows.popular_grupo() == "configure o wuzapi, o grupo e pelo menos um bot"
+    assert flows.popular_grupo(1) == "configure o wuzapi, o bot e o grupo"
     with db.connect() as con:
         con.execute("INSERT INTO bots (id, name, token) VALUES (1, 'A', 'tA'), (2, 'B', 'tB'), (3, 'C', 'tC')")
-    for k, v in {"whatsapp.url": "http://wuz", "popular.group": "123@g.us", "popular.bots": "1 2",
-                 "popular.supabase_url": "https://x.supabase.co", "popular.supabase_key": "k", "popular.count": "3"}.items():
+    for k, v in {"whatsapp.url": "http://wuz", "popular.bots": "1 2", "popular.1.group": "123@g.us", "popular.1.count": "3",
+                 "popular.2.group": "456@g.us", "popular.2.count": "7", "popular.3.group": "789@g.us",
+                 "popular.supabase_url": "https://x.supabase.co", "popular.supabase_key": "k"}.items():
         db.set_setting(k, v)
+    assert flows.popular_grupo(3) == "configure o wuzapi, o bot e o grupo"  # bot C não marcado
     calls = []
 
     def req(method, url, params, timeout, headers, **kw):
@@ -727,12 +729,32 @@ def test_popular_grupo(app, monkeypatch):
         added.append((token, group, phone))
     monkeypatch.setattr(whatsapp, "add_participant", add)
     sleeps = []
-    assert flows.popular_grupo(sleep=sleeps.append) == "2 de 3 números adicionados, 1 com erro"
-    assert added == [("tA", "123@g.us", "551199990001"), ("tA", "123@g.us", "5511999990003")]  # bot C não marcado
-    assert len(sleeps) == 2 and all(1 <= s <= 4 for s in sleeps)
+    assert flows.popular_grupo(1, sleep=sleeps.append) == "2 de 3 números adicionados, 1 com erro"
+    assert added == [("tA", "123@g.us", "551199990001"), ("tA", "123@g.us", "5511999990003")]
     assert calls[0][1] == "https://x.supabase.co/rest/v1/numeros" and calls[0][2]["limit"] == 3
     assert [(c[2]["numero"], c[3]["status"]) for c in calls[1:]] == [
         ("eq.+55 11 9999-0001", "ADICIONADO"), ("eq.5511999990002", "ERRO"), ("eq.5511999990003", "ADICIONADO")]
+    assert db.row("SELECT COUNT(*) AS n FROM logs WHERE job = 'popular.grupo.1' AND level = 'erro'")["n"] == 1
+    added.clear(), calls.clear(), sleeps.clear()
+    orig = flows.popular_grupo
+    monkeypatch.setattr(flows, "popular_grupo", lambda bid: orig(bid, sleep=sleeps.append))
+    flows.run("popular.grupo.2")  # o run despacha pelo id do job  # bot B usa grupo e quantidade próprios
+    assert {g for _, g, _ in added} == {"456@g.us"} and {t for t, _, _ in added} == {"tB"} and calls[0][2]["limit"] == 7
+    assert len(sleeps) == 2 and all(1 <= s <= 4 for s in sleeps)
+    assert flows.job_label("popular.grupo.2") == "Popular Grupo · B"
+
+
+def test_popular_migration(app):
+    from promosend import db, scheduler
+    db.execute("INSERT INTO jobs (id, cron, enabled) VALUES ('popular.grupo', '5 8 * * *', 1)")
+    for k, v in {"popular.bots": "1 2", "popular.group": "1@g.us", "popular.group_name": "G", "popular.count": "4"}.items():
+        db.set_setting(k, v)
+    scheduler.seed_jobs()
+    assert not db.row("SELECT 1 FROM jobs WHERE id = 'popular.grupo'")
+    for bid in (1, 2):
+        j = db.row("SELECT * FROM jobs WHERE id = ?", f"popular.grupo.{bid}")
+        assert (j["cron"], j["enabled"]) == ("5 8 * * *", 1)
+        assert db.get_setting(f"popular.{bid}.group") == "1@g.us" and db.get_setting(f"popular.{bid}.count") == "4"
 
 
 def test_popular_page(app, monkeypatch):
@@ -741,21 +763,31 @@ def test_popular_page(app, monkeypatch):
     t = csrf(c, "/setup")
     c.post("/setup", data={"csrf": t, "username": "a", "password": "12345678", "confirm": "12345678"})
     with db.connect() as con:
-        con.execute("INSERT INTO bots (id, name, token) VALUES (1, 'A', 'tA')")
+        con.execute("INSERT INTO bots (id, name, token) VALUES (1, 'A', 'tA'), (2, 'B', 'tB')")
     t = csrf(c, "/config/popular-grupo")
-    c.post("/config/popular-grupo", data={"csrf": t, "bot": "1", "count": "5", "cron": "0 9 * * *",
+    c.post("/config/popular-grupo", data={"csrf": t, "bot": ["1", "2"],
                                           "supabase_url": "https://x.supabase.co", "supabase_key": "segredo", "table": ""})
-    assert db.get_setting("popular.bots") == "1" and db.get_setting("popular.table") == "numeros"
-    monkeypatch.setattr(whatsapp, "list_groups", lambda url, token: [{"jid": "9@g.us", "name": "Promo"}])
+    assert db.get_setting("popular.bots") == "1 2" and db.get_setting("popular.table") == "numeros"
+    assert db.row("SELECT enabled FROM jobs WHERE id = 'popular.grupo.2'")["enabled"] == 0
+    monkeypatch.setattr(whatsapp, "list_groups", lambda url, token: [{"jid": token + "@g.us", "name": "Promo " + token}])
     html = c.get("/config/popular-grupo?listar=1").get_data(as_text=True)
-    assert '9@g.us|Promo' in html and "segredo" not in html
-    c.post("/config/popular-grupo", data={"csrf": t, "bot": "1", "count": "5", "cron": "0 9 * * *", "group": "9@g.us|Promo"})
-    assert db.get_setting("popular.group") == "9@g.us" and db.get_setting("popular.supabase_key") == "segredo"
+    assert 'tA@g.us|Promo tA' in html and "tB@g.us" not in html and "segredo" not in html
+    c.post("/config/popular-grupo/1", data={"csrf": t, "count": "5", "cron": "0 9 * * *", "enabled": "on", "group": "tA@g.us|Promo tA"})
+    c.post("/config/popular-grupo/2", data={"csrf": t, "count": "8", "cron": "30 14 * * *"})
+    assert db.get_setting("popular.1.group") == "tA@g.us" and db.get_setting("popular.1.count") == "5"
+    assert db.get_setting("popular.2.count") == "8" and not db.get_setting("popular.2.group")
+    assert [(j["cron"], j["enabled"]) for j in db.rows("SELECT * FROM jobs WHERE id LIKE 'popular.grupo.%' ORDER BY id")] == [
+        ("0 9 * * *", 1), ("30 14 * * *", 0)]
+    assert db.get_setting("popular.supabase_key") == "segredo"
     # bot que adiciona pessoas sai da postagem e não volta mesmo se o formulário mandar
     assert db.row("SELECT posts FROM bots WHERE id = 1")["posts"] == 0
     assert "não posta" in c.get("/config/whatsapp").get_data(as_text=True)
     c.post("/config/whatsapp/postagem", data={"csrf": t, "bot": "1", "post_count": "1", "cron": "*/10 * * * *"})
     assert db.row("SELECT posts FROM bots WHERE id = 1")["posts"] == 0
+    # desmarcar o bot apaga o job dele
+    c.post("/config/popular-grupo", data={"csrf": t, "bot": "1", "supabase_url": "https://x.supabase.co", "table": "numeros"})
+    assert not db.row("SELECT 1 FROM jobs WHERE id = 'popular.grupo.2'")
+    assert c.post("/config/popular-grupo/2", data={"csrf": t, "count": "1", "cron": "0 9 * * *"}).status_code == 404
 
 
 def test_postagem_skips_popular_bot(app, monkeypatch):
