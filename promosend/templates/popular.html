@@ -21,48 +21,51 @@
   </div>
 
   <div class="panel">
-    <h2 style="margin-top:0">Bots e grupo</h2>
-    <p class="muted">Os bots se revezam: cada número é adicionado por um bot. Todos precisam ser administradores do grupo.
+    <h2 style="margin-top:0">Bots que adicionam</h2>
+    <p class="muted">Cada bot marcado tem grupo, quantidade e cron próprios, configurados abaixo. O bot precisa ser administrador do grupo.
       Bot marcado aqui só adiciona pessoas: ele sai do fluxo de postagem e não posta produtos.
       Para ele voltar a postar, desmarque aqui e marque de novo em <a href="{{ url_for('whatsapp_config') }}">WhatsApp</a>.</p>
-    <label>Bots que adicionam</label>
     {% for b in bots %}
     <label class="row" style="font-weight:400;margin:4px 0"><input type="checkbox" name="bot" value="{{ b.id }}" {{ 'checked' if b.id in chosen }}>
       {{ b.name }}</label>
     {% else %}<p class="muted">Cadastre um bot em <a href="{{ url_for('whatsapp_config') }}">WhatsApp</a>.</p>{% endfor %}
+    <p><button class="btn primary" type="submit">Salvar</button></p>
+  </div>
+</form>
 
-    <label for="group">Grupo</label>
-    {% if groups is not none %}
-    <select id="group" name="group">
-      {% for jid, name in groups|dictsort(by='value') %}
-      <option value="{{ jid }}|{{ name }}" {{ 'selected' if jid == group }}>{{ name }}</option>
+{% for a in adders %}
+<form method="post" action="{{ url_for('popular_bot', bid=a.id) }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <div class="panel">
+    <h2 style="margin-top:0">{{ a.name }}</h2>
+    <p class="muted">Em cada execução, pega os números pendentes e adiciona no grupo, com intervalo aleatório de 1 a 4 segundos entre cada pessoa.</p>
+    <label for="group-{{ a.id }}">Grupo</label>
+    {% if a.groups is not none %}
+    <select id="group-{{ a.id }}" name="group">
+      {% for jid, name in a.groups|dictsort(by='value') %}
+      <option value="{{ jid }}|{{ name }}" {{ 'selected' if jid == a.group }}>{{ name }}</option>
       {% else %}<option value="">Nenhum grupo encontrado</option>{% endfor %}
     </select>
     {% else %}
     <div class="row">
-      <span>{{ group_name or 'Nenhum grupo escolhido' }}</span>
-      <a class="btn small" href="{{ url_for('popular', listar=1) }}">Listar grupos dos bots</a>
+      <span>{{ a.group_name or 'Nenhum grupo escolhido' }}</span>
+      <a class="btn small" href="{{ url_for('popular', listar=a.id) }}">Listar grupos do bot</a>
     </div>
-    <div class="muted">Salve os bots antes de listar: a lista vem dos bots marcados.</div>
     {% endif %}
-  </div>
-
-  <div class="panel">
-    <h2 style="margin-top:0">Agendamento</h2>
-    <p class="muted">Em cada execução, pega os números pendentes e adiciona no grupo, com intervalo aleatório de 1 a 4 segundos entre cada pessoa.</p>
-    <label for="count">Números por execução</label>
-    <input id="count" name="count" type="number" min="1" value="{{ count }}" style="max-width:120px">
-    <label for="cron">Cron</label>
+    <label for="count-{{ a.id }}">Números por execução</label>
+    <input id="count-{{ a.id }}" name="count" type="number" min="1" value="{{ a.count }}" style="max-width:120px">
+    <label for="cron-{{ a.id }}">Cron</label>
     <div class="row">
-      <input id="cron" name="cron" value="{{ job.cron }}" style="max-width:180px">
-      <label class="row" style="margin:0;font-weight:400"><input type="checkbox" name="enabled" {{ 'checked' if job.enabled }}> ativo</label>
+      <input id="cron-{{ a.id }}" name="cron" value="{{ a.job.cron }}" style="max-width:180px">
+      <label class="row" style="margin:0;font-weight:400"><input type="checkbox" name="enabled" {{ 'checked' if a.job.enabled }}> ativo</label>
     </div>
     <p class="row">
       <button class="btn primary" type="submit">Salvar</button>
-      <button class="btn" type="submit" formaction="{{ url_for('run_job', job_id=job.id) }}">Executar agora</button>
-      {% if job.last_run %}<span class="muted {{ 'status-erro' if job.last_status.startswith('erro') else 'status-ok' }}">
-        {{ job.last_run }}: {{ job.last_status }}</span>{% endif %}
+      <button class="btn" type="submit" formaction="{{ url_for('run_job', job_id=a.job.id) }}">Executar agora</button>
+      {% if a.job.last_run %}<span class="muted {{ 'status-erro' if a.job.last_status.startswith('erro') else 'status-ok' }}">
+        {{ a.job.last_run }}: {{ a.job.last_status }}</span>{% endif %}
     </p>
   </div>
 </form>
+{% endfor %}
 {% endblock %}

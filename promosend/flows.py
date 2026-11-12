@@ -2,6 +2,7 @@
 import logging
 import random
 import re
+import threading
 import time
 import traceback
 from html import escape
@@ -12,7 +13,7 @@ from .providers import PROVIDERS
 log = logging.getLogger(__name__)
 
 POST_JOB = "whatsapp.postagem"
-POPULAR_JOB = "popular.grupo"
+POPULAR_JOB = "popular.grupo"  # prefixo: cada bot tem o seu job popular.grupo.<id>
 FLOW_LABELS = {"busca": "Busca de produtos", "links": "Gerar links de afiliado", "limpeza": "Limpar produtos",
                "postagem": "Postar produtos nos grupos e canais", "grupo": "Adicionar números ao grupo"}
 
@@ -132,34 +133,41 @@ def popular_bot_ids():
     return {int(i) for i in db.get_setting("popular.bots").split()}
 
 
-def popular_grupo(sleep=time.sleep):
-    """Pega números pendentes no Supabase e adiciona no grupo, revezando entre os bots escolhidos."""
-    url, group = db.get_setting("whatsapp.url"), db.get_setting("popular.group")
+def popular_job(bid):
+    return f"{POPULAR_JOB}.{bid}"
+
+
+_popular_lock = threading.Lock()
+
+
+def popular_grupo(bid, sleep=time.sleep):
+    """Pega números pendentes no Supabase e adiciona no grupo do bot, com a quantidade configurada para ele."""
+    job, cfg = popular_job(bid), f"popular.{bid}."
+    url, group = db.get_setting("whatsapp.url"), db.get_setting(cfg + "group")
     sb = (db.get_setting("popular.supabase_url"), db.get_setting("popular.supabase_key"),
           db.get_setting("popular.table", "numeros"))
-    ids = popular_bot_ids()
-    bots = [b for b in db.rows("SELECT id, name, token FROM bots ORDER BY id") if b["id"] in ids]
-    if not (url and group and bots):
-        return "configure o wuzapi, o grupo e pelo menos um bot"
-    numbers = supabase.pending(*sb, int(db.get_setting("popular.count", "10") or 10))
-    if not numbers:
-        return "nenhum número pendente no Supabase"
-    added = 0
-    for i, numero in enumerate(numbers):
-        if i:
-            sleep(random.uniform(1, 4))
-        bot = bots[i % len(bots)]
-        try:
-            whatsapp.add_participant(url, bot["token"], group, re.sub(r"\D", "", str(numero)))
-            status, added = "ADICIONADO", added + 1
-            db.log(POPULAR_JOB, "info", f"{numero} adicionado pelo bot {bot['name']}")
-        except Exception as e:
-            status = "ERRO"  # não volta para a fila: evita insistir num número que o WhatsApp recusou
-            _error(POPULAR_JOB, f"{numero} pelo bot {bot['name']}: {e}")
-        try:
-            supabase.set_status(*sb, numero, status)
-        except Exception as e:
-            _error(POPULAR_JOB, f"{numero}: não consegui gravar o status {status} no Supabase: {e}")
+    bot = db.row("SELECT id, name, token FROM bots WHERE id = ?", bid)
+    if not (url and group and bot and bid in popular_bot_ids()):
+        return "configure o wuzapi, o bot e o grupo"
+    with _popular_lock:  # dois bots ao mesmo tempo pegariam os mesmos números pendentes
+        numbers = supabase.pending(*sb, int(db.get_setting(cfg + "count", "10") or 10))
+        if not numbers:
+            return "nenhum número pendente no Supabase"
+        added = 0
+        for i, numero in enumerate(numbers):
+            if i:
+                sleep(random.uniform(1, 4))
+            try:
+                whatsapp.add_participant(url, bot["token"], group, re.sub(r"\D", "", str(numero)))
+                status, added = "ADICIONADO", added + 1
+                db.log(job, "info", f"{numero} adicionado pelo bot {bot['name']}")
+            except Exception as e:
+                status = "ERRO"  # não volta para a fila: evita insistir num número que o WhatsApp recusou
+                _error(job, f"{numero} pelo bot {bot['name']}: {e}")
+            try:
+                supabase.set_status(*sb, numero, status)
+            except Exception as e:
+                _error(job, f"{numero}: não consegui gravar o status {status} no Supabase: {e}")
     failed = len(numbers) - added
     return f"{added} de {len(numbers)} números adicionados" + (f", {failed} com erro" if failed else "")
 
@@ -170,12 +178,15 @@ FLOWS = {"busca": busca, "links": links, "limpeza": limpeza}
 def default_jobs():
     jobs = {f"{p}.{f}": cron for p, prov in PROVIDERS.items() for f, cron in prov.DEFAULT_CRONS.items()}
     jobs[POST_JOB] = "*/10 10-22 * * *"
-    jobs[POPULAR_JOB] = "0 9 * * *"
     return jobs
 
 
 def job_label(job_id):
     pkey, _, flow = job_id.partition(".")
+    flow, _, bid = flow.partition(".")
+    if pkey == "popular" and bid:
+        b = db.row("SELECT name FROM bots WHERE id = ?", bid)
+        return f"Popular Grupo · {b['name'] if b else 'bot ' + bid}"
     name = PROVIDERS[pkey].NAME if pkey in PROVIDERS else {"whatsapp": "WhatsApp e Telegram", "popular": "Popular Grupo",
                                                                      "sistema": "Sistema"}.get(pkey, pkey)
     return f"{name} · {FLOW_LABELS[flow]}" if flow in FLOW_LABELS else name
@@ -184,7 +195,7 @@ def job_label(job_id):
 def run(job_id):
     if job_id == POST_JOB:
         return postagem()
-    if job_id == POPULAR_JOB:
-        return popular_grupo()
+    if job_id.startswith(POPULAR_JOB + "."):
+        return popular_grupo(int(job_id.rsplit(".", 1)[1]))
     pkey, flow = job_id.split(".")
     return FLOWS[flow](pkey)
