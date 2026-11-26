@@ -17,6 +17,7 @@
   {%- elif name == 'users' %}<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>
   {%- elif name == 'list' %}<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
   {%- elif name == 'clock' %}<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+  {%- elif name == 'block' %}<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>
   {%- elif name == 'logout' %}<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
   {%- endif %}
 </svg>
@@ -26,6 +27,7 @@
   <nav class="side">
     <div class="brand">PromoSend</div>
     <a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' }}" title="Produtos" aria-label="Produtos">{{ icon('grid') }}<span>Produtos</span></a>
+    <a href="{{ url_for('blocked_terms') }}" class="{{ 'active' if request.endpoint == 'blocked_terms' }}" title="Bloqueio" aria-label="Bloqueio">{{ icon('block') }}<span>Bloqueio</span></a>
     <a href="{{ url_for('providers') }}" class="{{ 'active' if request.endpoint in ('providers', 'provider') }}" title="Provedores" aria-label="Provedores">{{ icon('plug') }}<span>Provedores</span></a>
     <a href="{{ url_for('whatsapp_config') }}" class="{{ 'active' if request.endpoint in ('whatsapp_config', 'bot') }}" title="WhatsApp" aria-label="WhatsApp">{{ icon('chat') }}<span>WhatsApp</span></a>
     <a href="{{ url_for('telegram_config') }}" class="{{ 'active' if request.endpoint == 'telegram_config' }}" title="Telegram" aria-label="Telegram">{{ icon('send') }}<span>Telegram</span></a>

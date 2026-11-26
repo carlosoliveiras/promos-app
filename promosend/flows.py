@@ -62,7 +62,9 @@ def links(pkey):
     job, done, failed = f"{pkey}.links", 0, []
     for original, short, error in prov.generate_links(pending, cfg):
         if short:  # grava na hora: se o fluxo cair no meio, o que já saiu fica salvo
-            done += db.execute("UPDATE products SET affiliate_url = ?, status = 'PRONTO' "
+            # bloqueado ganha o link mas continua bloqueado até alguém liberar
+            done += db.execute("UPDATE products SET affiliate_url = ?, "
+                               "status = CASE status WHEN 'BLOQUEADO' THEN status ELSE 'PRONTO' END "
                                "WHERE provider = ? AND url = ?", short, pkey, original)
         else:
             failed.append(f"{original}: {error}")
@@ -106,7 +108,7 @@ def postagem(_=None, sleep=time.sleep):
                        "ORDER BY RANDOM() LIMIT ?", count)
     sent, errors, first = 0, 0, True
     for p in products:
-        ok, image = False, None
+        ok = False
         for kind, token, chat, label in targets:
             if not first:
                 sleep(random.uniform(1, 5))
@@ -115,8 +117,7 @@ def postagem(_=None, sleep=time.sleep):
                 if kind == "telegram":
                     telegram.send_photo(token, chat, p["image"], caption(p, html=True))
                 else:
-                    image = image or whatsapp.image_data_url(p["image"])
-                    whatsapp.send_image(url, token, chat, image, caption(p))
+                    whatsapp.send_text(url, token, chat, caption(p))
                 ok, sent = True, sent + 1
                 db.log(POST_JOB, "info", f"Postado {p['name']!r} em {label}")
             except Exception as e:

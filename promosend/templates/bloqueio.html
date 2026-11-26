@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bloqueio · PromoSend{% endblock %}
+{% block content %}
+<h1>Bloqueio de produtos</h1>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <div class="panel">
+    <p class="muted">Na busca, um produto novo com um destes termos no nome entra com status BLOQUEADO e não é postado.
+      Não diferencia maiúsculas. Para liberar, filtre por BLOQUEADO em <a href="{{ url_for('products', status='BLOQUEADO') }}">Produtos</a>
+      e clique em Liberar.</p>
+    <label for="terms">Termos bloqueados (um por linha)</label>
+    <textarea id="terms" name="terms" rows="12">{{ terms }}</textarea>
+    <p><button class="btn primary" type="submit">Salvar</button></p>
+  </div>
+</form>
+{% endblock %}

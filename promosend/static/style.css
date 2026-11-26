@@ -48,7 +48,7 @@ td, th { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; v
 .card .aff { font-size: 12px; overflow-wrap: anywhere; }
 .card .foot { margin-top: auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; padding-top: 6px; }
 .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); }
-.tag.PRONTO { color: var(--ok); } .tag.PENDENTE { color: #b45309; } .tag.ENVIADO { color: var(--muted); }
+.tag.PRONTO { color: var(--ok); } .tag.PENDENTE { color: #b45309; } .tag.ENVIADO { color: var(--muted); } .tag.BLOQUEADO { color: #b91c1c; }
 .pager { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 20px; }
 .status-ok { color: var(--ok); } .status-erro { color: var(--err); }
 .auth { max-width: 380px; margin: 10vh auto; }

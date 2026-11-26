@@ -1,6 +1,4 @@
 """Cliente do wuzapi (https://github.com/asternic/wuzapi). Cada bot é um usuário do wuzapi com seu token."""
-import base64
-
 import requests
 
 
@@ -17,18 +15,9 @@ def _call(method, base_url, path, headers, **kw):
     return body.get("data") or {}
 
 
-def image_data_url(url):
-    """O wuzapi só aceita imagem embutida em base64."""
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    mime = r.headers.get("content-type", "image/jpeg").split(";")[0]
-    if mime not in ("image/jpeg", "image/png"):
-        mime = "image/jpeg"
-    return f"data:{mime};base64,{base64.b64encode(r.content).decode()}"
-
-
-def send_image(base_url, token, jid, image, caption):
-    _call("POST", base_url, "/chat/send/image", {"Token": token}, json={"Phone": jid, "Image": image, "Caption": caption})
+def send_text(base_url, token, jid, text):
+    # o WhatsApp monta o card com a imagem a partir do link (og:image); o bot não envia a foto
+    _call("POST", base_url, "/chat/send/text", {"Token": token}, json={"Phone": jid, "Body": text, "LinkPreview": True})
 
 
 def list_groups(base_url, token):
