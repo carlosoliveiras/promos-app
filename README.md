@@ -43,7 +43,7 @@ Rode só **um** processo: o agendador dos fluxos roda dentro dele.
    (cada bot é um usuário do wuzapi, com seu token). Em *Configurar*, use *Listar grupos do bot* para ver os
    grupos do bot e marque em quais ele posta.
    - **Fluxo de postagem**: escolha os bots que postam, quantos produtos postar por execução e o cron.
-     A cada execução o sistema sorteia produtos `PRONTO`, posta imagem + texto em todos os grupos dos bots
+     A cada execução o sistema sorteia produtos `PRONTO`, posta o texto com preview do link (WhatsApp) ou foto + texto (Telegram) em todos os grupos dos bots
      marcados (e nos chats do Telegram), com intervalo aleatório de 1 a 5 s entre postagens, e marca o produto
      como `ENVIADO`.
 4. **Telegram**: crie um bot no [@BotFather](https://t.me/BotFather), adicione-o como administrador nos grupos e

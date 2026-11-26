@@ -127,8 +127,15 @@ def provider_config(pkey, fields):
     return {f["key"]: get_setting(f"{pkey}.{f['key']}", f.get("default", "")) for f in fields}
 
 
+def blocked_term(name):
+    """Primeiro termo bloqueado contido no nome (sem diferenciar maiúsculas), ou None."""
+    name = (name or "").lower()
+    return next((t for t in get_setting("products.blocked").splitlines() if t.strip() and t.strip().lower() in name), None)
+
+
 def upsert_products(provider, grupo, items):
-    # status e link de afiliado já gerados não são sobrescritos numa nova busca
+    # status e link de afiliado já gerados não são sobrescritos numa nova busca;
+    # o bloqueio só vale para produto novo, então liberar um produto não é desfeito na próxima busca
     with connect() as con:
         con.executemany(
             """INSERT INTO products (provider, external_id, name, image, url, affiliate_url, price,
@@ -143,4 +150,5 @@ def upsert_products(provider, grupo, items):
                    affiliate_url = COALESCE(excluded.affiliate_url, products.affiliate_url)""",
             [{"provider": provider, "grupo": grupo, "affiliate_url": None, "price_original": None,
               "discount": None, "commission": None, "sales": None, "url": None, **it,
-              "status": "PRONTO" if it.get("affiliate_url") else "PENDENTE"} for it in items])
+              "status": "BLOQUEADO" if blocked_term(it.get("name")) else
+                        "PRONTO" if it.get("affiliate_url") else "PENDENTE"} for it in items])

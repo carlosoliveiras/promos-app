@@ -276,14 +276,31 @@ def test_postagem(app, monkeypatch):
     db.upsert_products("shopee", "", [{"external_id": str(i), "name": f"P{i}", "image": "img", "price": 10.5,
                                        "affiliate_url": f"https://aff/{i}"} for i in range(3)])
     sent, sleeps = [], []
-    monkeypatch.setattr(whatsapp, "image_data_url", lambda url: "data:image/jpeg;base64,AA")
-    monkeypatch.setattr(whatsapp, "send_image", lambda url, token, jid, image, cap: sent.append((token, jid, cap)))
+    monkeypatch.setattr(whatsapp, "send_text", lambda url, token, jid, text: sent.append((token, jid, text)))
 
     assert flows.postagem(sleep=sleeps.append) == "2 produtos, 4 postagens"
     assert {(t, j) for t, j, _ in sent} == {("t1", "g1a@g.us"), ("t1", "g1b@g.us")}  # bot 2 não posta
     assert len(sleeps) == 3 and all(1 <= s <= 5 for s in sleeps)
     assert "*Por R$ 10,50*" in sent[0][2] and "https://aff/" in sent[0][2]
     assert db.row("SELECT COUNT(*) AS n FROM products WHERE status = 'ENVIADO'")["n"] == 2
+
+
+def test_blocked_terms_on_search(app):
+    from promosend import db
+    c, token = login(app)
+    c.post("/config/bloqueio", data={"terms": " cigarro \n\nVAPE", "csrf": token})
+    assert db.get_setting("products.blocked") == "cigarro\nVAPE"
+    items = [{"external_id": str(i), "name": n, "image": "img", "price": 1.0, "affiliate_url": a}
+             for i, (n, a) in enumerate([("Vape Pod", None), ("Isqueiro", None), ("Kit Cigarro", "https://aff/2")])]
+    db.upsert_products("amazon", "", items)
+    status = lambda: {r["name"]: r["status"] for r in db.rows("SELECT name, status FROM products")}
+    assert status() == {"Vape Pod": "BLOQUEADO", "Isqueiro": "PENDENTE", "Kit Cigarro": "BLOQUEADO"}
+    assert "Liberar" in c.get("/?status=BLOQUEADO").get_data(as_text=True)
+    for name in ("Vape Pod", "Kit Cigarro"):
+        pid = db.row("SELECT id FROM products WHERE name = ?", name)["id"]
+        c.post(f"/produtos/{pid}/liberar", data={"csrf": token})
+    db.upsert_products("amazon", "", items)  # nova busca não bloqueia de novo o que foi liberado
+    assert status() == {"Vape Pod": "PENDENTE", "Isqueiro": "PENDENTE", "Kit Cigarro": "PRONTO"}
 
 
 def test_postagem_telegram(app, monkeypatch):
@@ -798,5 +815,5 @@ def test_postagem_skips_popular_bot(app, monkeypatch):
     db.execute("INSERT INTO bots (id, name, token, posts) VALUES (1, 'b1', 't1', 1)")  # posts ficou 1 de antes
     db.execute("INSERT INTO bot_groups VALUES (1, 'g@g.us', 'A')")
     db.upsert_products("shopee", "", [{"external_id": "1", "name": "P", "image": "img", "price": 1, "affiliate_url": "u"}])
-    monkeypatch.setattr(whatsapp, "send_image", lambda *a: pytest.fail("bot do Popular Grupo postou"))
+    monkeypatch.setattr(whatsapp, "send_text", lambda *a: pytest.fail("bot do Popular Grupo postou"))
     assert flows.postagem(sleep=lambda s: None) == "configure um bot do WhatsApp com grupos ou um chat do Telegram"

@@ -98,6 +98,24 @@ def create_app():
         return redirect(url_for("products", provider=f.get("provider") or None, status=f.get("status") or None,
                                 page=f.get("page", type=int) or None))
 
+    @app.post("/produtos/<int:pid>/liberar")
+    def release_product(pid):
+        if db.execute("UPDATE products SET status = CASE WHEN COALESCE(affiliate_url, '') = '' THEN 'PENDENTE' "
+                      "ELSE 'PRONTO' END WHERE id = ? AND status = 'BLOQUEADO'", pid):
+            flash("Produto liberado.")
+        f = request.form
+        return redirect(url_for("products", provider=f.get("provider") or None, status=f.get("status") or None,
+                                page=f.get("page", type=int) or None))
+
+    @app.route("/config/bloqueio", methods=["GET", "POST"])
+    def blocked_terms():
+        if request.method == "POST":
+            db.set_setting("products.blocked", "\n".join(
+                t.strip() for t in request.form.get("terms", "").splitlines() if t.strip()))
+            flash("Termos de bloqueio salvos. Valem para os produtos novos das próximas buscas.")
+            return redirect(url_for("blocked_terms"))
+        return render_template("bloqueio.html", terms=db.get_setting("products.blocked"))
+
     @app.route("/logs")
     def logs():
         job, level = request.args.get("job", ""), request.args.get("level", "")
