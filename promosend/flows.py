@@ -30,7 +30,7 @@ def config(pkey):
 
 def busca(pkey):
     prov, cfg = PROVIDERS[pkey], config(pkey)
-    terms = [t for t in db.rows("SELECT term, grupo FROM terms WHERE provider = ? AND active = 1", pkey)
+    terms = [dict(t) for t in db.rows("SELECT term, grupo, max_items FROM terms WHERE provider = ? AND active = 1", pkey)
              if not hasattr(prov, "accepts") or prov.accepts(t["term"], cfg)]
     terms += prov.fixed_terms(cfg) if hasattr(prov, "fixed_terms") else []
     if not terms:
@@ -45,6 +45,8 @@ def busca(pkey):
             _error(job, f"Termo {t['term']!r}: {e}")
             failed += 1
             continue
+        if t.get("max_items"):
+            items = items[:t["max_items"]]
         db.upsert_products(pkey, t["grupo"], items)
         if items:
             db.log(job, "info", f"Termo {t['term']!r}: {len(items)} produtos")
