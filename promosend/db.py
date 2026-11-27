@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS terms (
     term TEXT NOT NULL,
     grupo TEXT NOT NULL DEFAULT '',
     active INTEGER NOT NULL DEFAULT 1,
+    max_items INTEGER,
     UNIQUE(provider, term)
 );
 CREATE TABLE IF NOT EXISTS products (
@@ -97,6 +98,8 @@ def execute(sql, *args):
 def init():
     with connect() as con:
         con.executescript(SCHEMA)
+        if "max_items" not in [c[1] for c in con.execute("PRAGMA table_info(terms)")]:
+            con.execute("ALTER TABLE terms ADD COLUMN max_items INTEGER")  # bancos criados antes da coluna
 
 
 LOG_DAYS = 7

@@ -240,13 +240,20 @@ def create_app():
         flash("API do Mercado Livre desconectada.")
         return redirect(url_for("provider", pkey="mercadolivre"))
 
+    def max_items_form():
+        """Campo 'max_items': vazio ou 0 = sem limite."""
+        v = request.form.get("max_items", "").strip()
+        return int(v) if v.isdigit() and int(v) > 0 else None
+
     @app.post("/config/provedores/<pkey>/termos")
     def add_terms(pkey):
         get_provider(pkey)
         grupo = request.form.get("grupo", "").strip()
+        max_items = max_items_form()
         new = [t.strip() for t in request.form["terms"].splitlines() if t.strip()]
         for t in new:
-            db.execute("INSERT OR IGNORE INTO terms (provider, term, grupo) VALUES (?, ?, ?)", pkey, t, grupo)
+            db.execute("INSERT OR IGNORE INTO terms (provider, term, grupo, max_items) VALUES (?, ?, ?, ?)",
+                       pkey, t, grupo, max_items)
         flash(f"{len(new)} termo(s) adicionado(s).")
         return redirect(url_for("provider", pkey=pkey))
 
@@ -255,6 +262,8 @@ def create_app():
         t = db.row("SELECT * FROM terms WHERE id = ?", tid) or abort(404)
         if action == "alternar":
             db.execute("UPDATE terms SET active = 1 - active WHERE id = ?", tid)
+        elif action == "limite":
+            db.execute("UPDATE terms SET max_items = ? WHERE id = ?", max_items_form(), tid)
         elif action == "excluir":
             db.execute("DELETE FROM terms WHERE id = ?", tid)
         else:

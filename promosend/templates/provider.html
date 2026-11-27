@@ -36,15 +36,24 @@
     <div class="muted">{{ prov.TERM_HELP }}</div>
     <label for="grupo">Grupo (opcional)</label>
     <input id="grupo" name="grupo" placeholder="ex.: Geral, Fitness">
+    <label for="max_items">Máx. produtos por execução (opcional)</label>
+    <input id="max_items" name="max_items" type="number" min="0" step="1" placeholder="sem limite">
     <p><button class="btn primary" type="submit">Adicionar</button></p>
   </form>
   {% if terms %}
   <table class="stack">
-    <tr><th>Termo</th><th>Grupo</th><th>Ativo</th><th></th></tr>
+    <tr><th>Termo</th><th>Grupo</th><th>Máx. por execução</th><th>Ativo</th><th></th></tr>
     {% for t in terms %}
     <tr>
       <td data-label="Termo">{{ t.term }}</td>
       <td data-label="Grupo">{{ t.grupo or "—" }}</td>
+      <td data-label="Máx. por execução">
+        <form class="row" method="post" action="{{ url_for('term_action', tid=t.id, action='limite') }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <input name="max_items" type="number" min="0" step="1" value="{{ t.max_items or '' }}" placeholder="sem limite" style="width:7em" aria-label="Máximo de produtos de {{ t.term }}">
+          <button class="btn small" type="submit">Salvar</button>
+        </form>
+      </td>
       <td data-label="Ativo">{{ 'Sim' if t.active else 'Não' }}</td>
       <td class="row">
         {% for action, label in [('alternar', 'Desativar' if t.active else 'Ativar'), ('excluir', 'Excluir')] %}
